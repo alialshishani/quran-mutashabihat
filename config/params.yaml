@@ -1,0 +1,36 @@
+# All thresholds and weights live here. Nothing in pipeline/ hardcodes a value
+# that appears in this file (brief section 11).
+
+detection:
+  # Normalization profile the detection stream is built from.
+  profile: standard
+
+  pass_a:
+    # Shortest repeated span worth reporting, in tokens. Below 3 the output is
+    # dominated by common particle pairs that no memoriser confuses.
+    min_span_tokens: 3
+    # A span must appear at least this many times to form a group.
+    min_occurrences: 2
+    # Spans that run across a surah boundary are recorded but flagged, because
+    # a "phrase" spanning the seam between two surahs is an artefact of the
+    # global token stream rather than a phrase a reciter holds in memory.
+    flag_cross_surah: true
+
+rules:
+  r1_majority:
+    # "All the positions take X except one, in surah ___."
+    # Needs enough positions for a majority to mean anything.
+    min_occurrences: 3
+    # Largest minority still describable as "except one/a few".
+    max_minority_count: 2
+    # Majority must hold at least this share of the positions. 0.75 is the
+    # weakest split still honestly describable as "all except one or a few":
+    # at 0.6 a 3-versus-2 split would qualify, which is not a majority a
+    # memoriser can lean on.
+    min_majority_share: 0.75
+    # Prior weight, before verification confidence is applied.
+    prior: 0.9
+
+output:
+  # Ranking cap for the human-readable report.
+  max_groups_in_report: 200

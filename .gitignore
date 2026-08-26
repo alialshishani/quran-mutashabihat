@@ -1,0 +1,14 @@
+# Virtualenv and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Derived corpus: rebuilt from data/raw/ by `python -m pipeline.ingest --rebuild`.
+data/quran.db
+data/interim/
+
+# QUL downloads. Licensed source files fetched by hand per docs/DOWNLOAD.md;
+# data/raw/PROVENANCE.md records every checksum and licence and IS tracked.
+data/raw/*
+!data/raw/PROVENANCE.md

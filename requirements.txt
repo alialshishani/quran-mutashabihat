@@ -1,0 +1,5 @@
+pyarabic
+rapidfuzz
+networkx
+pyyaml
+pytest
