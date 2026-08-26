@@ -11,7 +11,7 @@ from http import HTTPStatus
 import pytest
 
 from app import lookup as L
-from app.server import BadRequest, build_response
+from app.server import PAGE_LOOKUP, BadRequest, build_response
 
 
 @pytest.fixture(scope="module")
@@ -156,9 +156,9 @@ def test_unknown_route_is_404(con):
     assert "error" in payload
 
 
-def test_page_route_returns_no_payload(con):
+def test_page_route_names_the_lookup_page(con):
     status, payload = build_response(con, "/", {})
-    assert status == HTTPStatus.OK and payload is None
+    assert status == HTTPStatus.OK and payload == PAGE_LOOKUP
 
 
 def test_surah_list_covers_the_mushaf(con):

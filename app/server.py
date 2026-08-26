@@ -4,9 +4,12 @@
     python -m app.server --port 8080 --cors
 
 Endpoints
-    GET /                                 the lookup page
+    GET /                                 the āyah lookup page
+    GET /official                         the official mutashābihāt, as forks
     GET /api/mutashabih?surah=2&ayah=25   JSON for one āyah
     GET /api/mutashabih/2/25              same, path form
+    GET /api/official?shape=all_but_one   the fork list, filtered and paged
+    GET /api/official/7060                one fork in full
     GET /api/surahs                       sūrah list with āyah counts
     GET /api/scopes                       which analysis scopes are populated
     GET /api/health                       corpus row counts
@@ -27,9 +30,16 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from app import lookup as L
-from app.page import html
+from app.forks_page import html as forks_html
+from app.page import html as lookup_html
 
 VERSE_PATH = re.compile(r"^/api/mutashabih/(\d+)[/:](\d+)$")
+PHRASE_PATH = re.compile(r"^/api/(?:official|forks)/(\d+)$")
+
+# Sentinels: the router names a page, the handler renders and caches it.
+PAGE_LOOKUP = "page:lookup"
+PAGE_FORKS = "page:forks"
+PAGES = {PAGE_LOOKUP: lookup_html, PAGE_FORKS: forks_html}
 
 
 class BadRequest(ValueError):
@@ -54,9 +64,37 @@ def _bool_param(query: dict[str, list[str]], name: str, default: bool) -> bool:
 
 
 def build_response(con: sqlite3.Connection, path: str, query: dict) -> tuple[int, object]:
-    """Route one GET. Returns (status, payload); payload None means the page."""
+    """Route one GET. Returns (status, payload); a PAGE payload means HTML."""
     if path in {"/", "/index.html"}:
-        return HTTPStatus.OK, None
+        return HTTPStatus.OK, PAGE_LOOKUP
+    if path in {"/official", "/forks"}:
+        return HTTPStatus.OK, PAGE_FORKS
+
+    if path == "/api/official" or path == "/api/forks":
+        if not L.has_forks(con):
+            return HTTPStatus.SERVICE_UNAVAILABLE, {
+                "error": "forks not built; run: python -m pipeline.official --rebuild, "
+                "python -m pipeline.pegs --rebuild, python -m pipeline.forks --rebuild"
+            }
+        try:
+            return HTTPStatus.OK, L.fork_index(
+                con,
+                shape=query.get("shape", [None])[0] or None,
+                min_positions=_int_param(query, "min_positions", 2) or 2,
+                surah=_int_param(query, "surah", None),
+                q=query.get("q", [None])[0] or None,
+                sort=query.get("sort", ["useful"])[0] or "useful",
+                limit=max(1, min(_int_param(query, "limit", 25) or 25, 200)),
+                offset=max(0, _int_param(query, "offset", 0) or 0),
+            )
+        except ValueError as exc:
+            raise BadRequest(str(exc)) from None
+
+    matched = PHRASE_PATH.match(path)
+    if matched:
+        if not L.has_forks(con):
+            return HTTPStatus.SERVICE_UNAVAILABLE, {"error": "forks not built"}
+        return HTTPStatus.OK, L.fork_detail(con, int(matched.group(1)))
 
     if path == "/api/surahs":
         return HTTPStatus.OK, L.surahs(con)
@@ -102,7 +140,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "quran-msh/1.0"
     con: sqlite3.Connection
     cors: bool = False
-    page_cache: str | None = None
+    page_cache: dict[str, str] = {}
 
     # -- plumbing -------------------------------------------------------------
 
@@ -135,17 +173,18 @@ class Handler(BaseHTTPRequestHandler):
         except BadRequest as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
-        except L.AyahNotFound as exc:
+        except (L.AyahNotFound, L.PhraseNotFound) as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
             return
         except sqlite3.Error as exc:
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"database error: {exc}"})
             return
 
-        if payload is None:
-            if type(self).page_cache is None:
-                type(self).page_cache = html()
-            self._send(status, type(self).page_cache.encode("utf-8"), "text/html; charset=utf-8")
+        if isinstance(payload, str) and payload in PAGES:
+            cache = type(self).page_cache
+            if payload not in cache:
+                cache[payload] = PAGES[payload]()
+            self._send(status, cache[payload].encode("utf-8"), "text/html; charset=utf-8")
             return
         self._json(status, payload)
 

@@ -19,18 +19,22 @@ python -m pipeline.pass_a --scope full --rebuild
 python -m pipeline.apply_rules --scope full --rebuild
 ```
 
-For the official mutashābihāt section and its pegs:
+For the official mutashābihāt page, its pegs, and its forks:
 
 ```bash
 python -m pipeline.official --rebuild
 python -m pipeline.pegs --rebuild
+python -m pipeline.forks --rebuild
 ```
 
 ## Endpoints
 
 | Route | Purpose |
 |---|---|
-| `GET /` | The lookup page. Deep-links as `#2:25`. |
+| `GET /` | The āyah lookup page. Deep-links as `#2:25`. |
+| `GET /official` | The forks page — the official mutashābihāt only. Filters live in the query string. |
+| `GET /api/official` | The fork list, filtered and paged. |
+| `GET /api/official/7060` | One fork in full, every position with its āyah and cue. |
 | `GET /api/mutashabih?surah=2&ayah=25` | Everything for one āyah (JSON). |
 | `GET /api/mutashabih/2/25` | Same, path form. |
 | `GET /api/surahs` | 114 sūrahs with āyah counts, for the picker. |
@@ -48,8 +52,25 @@ python -m pipeline.pegs --rebuild
 | `collapse` | `1` | Drop a span that a longer span covers **and** whose positions are a subset of that longer span's. Set `0` to see every span. |
 | `official` | `1` | Include the official mutashābihāt section and its pegs. Set `0` to skip it. |
 
-Errors are JSON: `400` for a parameter the caller can fix, `404` for a route or
-an āyah that does not exist.
+Errors are JSON: `400` for a parameter the caller can fix, `404` for a route, an
+āyah, or a phrase that does not exist, `503` when the fork tables have not been
+built.
+
+### `/api/official` parameters
+
+| Name | Default | Meaning |
+|---|---|---|
+| `shape` | — | `all_but_one`, `two_way`, `many`, or `no_fork`. |
+| `min_positions` | `2` | Drop forks with fewer positions than this. |
+| `surah` | — | Only forks with a position in this sūrah. |
+| `q` | — | Substring of the road, matched against both the Uthmānī and normalized text. |
+| `sort` | `useful` | `useful` (cheapest shape first), `positions`, `branches`, `surahs`. |
+| `limit` / `offset` | `25` / `0` | Paging. `limit` is capped at 200. |
+
+Each entry carries `phrase_ar`, `road_ar` (phrase plus whatever the positions
+still share), `road_tail_ar`, `shared_after`, `shape`, the counts, and
+`branches` — one per way out of the fork, with its `token_ar` and the positions
+taking it. The detail route adds each position's āyah words and its peg.
 
 ### Response shape
 

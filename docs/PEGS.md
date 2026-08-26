@@ -84,12 +84,36 @@ back from the row that made it — including that each cue is carried by exactly
 one position, that a narrower cue would *not* have been unique (minimality), and
 that the count in the Arabic sentence is the real count.
 
+## The fork
+
+A repeated phrase is not by itself worth studying. What costs a reciter is the
+fork: a stretch of wording they have recited before, then a point where it goes
+two ways and nothing in the road itself says which. `pipeline/forks.py` reshapes
+each phrase that way — road, fork, branches — and `/official` is that view.
+
+| Shape | Phrases | Meaning |
+|---|---|---|
+| `two_way` | 384 | the road splits in two |
+| `many` | 349 | more than two ways out |
+| `all_but_one` | 75 | one position leaves the road the others take |
+| `no_fork` | 1 | the positions never disagree after the phrase |
+
+731 of the 809 fork on the very next word; the rest run on together for up to
+twelve more, and that shared tail is part of the road.
+
+`all_but_one` is the cheapest shape to hold — learn the exception, default to
+the rest — and the rule deliberately requires at least three positions. A
+two-position phrase splitting one-and-one is a `two_way`, not an exception: the
+first cut of this counted those and reported 448 "all but one" forks where there
+are 75.
+
 ## Running it
 
 ```bash
 python -m pipeline.official --rebuild   # confusion sets, linked to pass-A groups
 python -m pipeline.pegs --rebuild       # the ladder
-python -m pytest tests/test_pegs.py -q
+python -m pipeline.forks --rebuild      # road, fork, branches
+python -m pytest tests/test_pegs.py tests/test_forks.py -q
 ```
 
 `--rebuild` drops and recreates its own tables, so it carries a schema change.
@@ -102,5 +126,7 @@ python -m pytest tests/test_pegs.py -q
 | `official_positions` | position in a confusion set | `in_official`, `in_exact`, `group_id` + `link` to the pass-A group (`exact` 2,310 · `contained` 495 · `contains` 484 · `overlap` 206 · `none` 241) |
 | `pegs` | position | `kind`, `cue_ar`, `continuation_ar`, `strength`, `evidence`, `text_ar` |
 | `similar_ayahs` | āyah pair | QUL resource 74, 3,552 pairs, ingested for later use |
+| `forks` | phrase | `shared_after`, `road_ar`, `branch_count`, `largest_branch`, `shape` |
+| `fork_branches` / `fork_members` | branch / position | one way out of the fork and who takes it |
 
 Thresholds and weights live in `config/params.yaml` under `pegs:`.

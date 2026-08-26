@@ -172,6 +172,10 @@ details.siblings[open] > summary { margin-bottom:.4rem; }
 .legend { display:flex; flex-wrap:wrap; gap:1.1rem; font-size:.78rem; color:var(--ink-mute); margin:0 .2rem 1.5rem; }
 .legend span.sw { display:inline-block; width:.8rem; height:.8rem; border-radius:3px; vertical-align:-1px; margin-inline-end:.35rem; }
 
+nav.pages { display:flex; gap:1rem; align-items:center; font-size:.85rem; margin-bottom:1.5rem; }
+nav.pages a { text-decoration:none; }
+nav.pages .here { color:var(--ink-mute); }
+
 footer { margin-top:3.5rem; padding-top:1.5rem; border-top:1px solid var(--rule);
          color:var(--ink-mute); font-size:.8rem; display:flex; flex-direction:column; gap:.6rem; }
 code { font-family:"IBM Plex Mono",monospace; font-size:.85em; }
@@ -522,6 +526,12 @@ def html() -> str:
 </head>
 <body>
 <div class="wrap">
+  <nav class="pages">
+    <span class="here">Look up an āyah</span>
+    <span class="here">·</span>
+    <a href="/official">Forks in the road</a>
+  </nav>
+
   <header>
     <div class="eyebrow">Pass A · exact repeats · R1 ḍawābiṭ</div>
     <h1>Which āyāt is this one confused with?</h1>

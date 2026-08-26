@@ -26,6 +26,10 @@ class AyahNotFound(LookupError):
     """The requested sūrah:āyah is not in the muṣḥaf."""
 
 
+class PhraseNotFound(LookupError):
+    """No official phrase carries this id."""
+
+
 def connect(db: Path | str = DB) -> sqlite3.Connection:
     """Read-only connection. The service never writes to the corpus."""
     db = Path(db)
@@ -310,6 +314,237 @@ def official_matches(
         )
     )
     return out
+
+
+# -- forks --------------------------------------------------------------------
+
+SHAPES = ("all_but_one", "two_way", "many", "no_fork")
+# Cheapest to hold first: one exception beats a two-way split, which beats a
+# fork that costs a peg per position.
+SHAPE_RANK = "CASE shape WHEN 'all_but_one' THEN 0 WHEN 'two_way' THEN 1 " \
+             "WHEN 'many' THEN 2 ELSE 3 END"
+SORTS = {
+    "useful": f"{SHAPE_RANK}, position_count DESC, phrase_id",
+    "positions": "position_count DESC, phrase_id",
+    "branches": "branch_count DESC, position_count DESC, phrase_id",
+    "surahs": "surah_count DESC, position_count DESC, phrase_id",
+}
+
+
+def has_forks(con: sqlite3.Connection) -> bool:
+    present = {
+        r[0]
+        for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name IN ('forks', 'fork_branches', 'fork_members')"
+        )
+    }
+    return len(present) == 3 and bool(
+        con.execute("SELECT COUNT(*) FROM forks LIMIT 1").fetchone()[0]
+    )
+
+
+def _branches(con: sqlite3.Connection, phrase_id: int) -> list[dict]:
+    out = []
+    for branch in con.execute(
+        "SELECT * FROM fork_branches WHERE phrase_id = ? ORDER BY ordinal", (phrase_id,)
+    ):
+        members = con.execute(
+            "SELECT o.pos_id, o.verse_key, o.surah, o.ayah, o.page, o.juz, s.name_ar "
+            "FROM fork_members m JOIN official_positions o ON o.pos_id = m.pos_id "
+            "JOIN surahs s ON s.surah = o.surah "
+            "WHERE m.branch_id = ? ORDER BY o.start_word_id",
+            (branch["branch_id"],),
+        ).fetchall()
+        out.append(
+            {
+                "branch_id": branch["branch_id"],
+                "ordinal": branch["ordinal"],
+                "token_ar": branch["token_ar"],
+                "ends_surah": bool(branch["ends_surah"]),
+                "position_count": branch["position_count"],
+                "is_largest": bool(branch["is_largest"]),
+                "positions": [
+                    {
+                        "pos_id": m["pos_id"],
+                        "verse_key": m["verse_key"],
+                        "surah": m["surah"],
+                        "ayah": m["ayah"],
+                        "surah_name_ar": m["name_ar"],
+                        "page": m["page"],
+                        "juz": m["juz"],
+                    }
+                    for m in members
+                ],
+            }
+        )
+    return out
+
+
+def fork_index(
+    con: sqlite3.Connection,
+    *,
+    shape: str | None = None,
+    min_positions: int = 2,
+    surah: int | None = None,
+    q: str | None = None,
+    sort: str = "useful",
+    limit: int = 25,
+    offset: int = 0,
+) -> dict:
+    """The official mutashābihāt as forks, filtered and paged."""
+    where = ["f.position_count >= ?"]
+    args: list = [min_positions]
+    if shape:
+        if shape not in SHAPES:
+            raise ValueError(f"unknown shape {shape!r}; expected one of {', '.join(SHAPES)}")
+        where.append("f.shape = ?")
+        args.append(shape)
+    if surah:
+        where.append(
+            "EXISTS (SELECT 1 FROM official_positions o "
+            "WHERE o.phrase_id = f.phrase_id AND o.surah = ?)"
+        )
+        args.append(surah)
+    if q:
+        where.append("(f.road_ar LIKE ? OR p.text_norm LIKE ?)")
+        args += [f"%{q}%", f"%{q}%"]
+
+    clause = " AND ".join(where)
+    joined = (
+        "FROM forks f JOIN official_phrases p ON p.phrase_id = f.phrase_id "
+        f"WHERE {clause}"
+    )
+    total = con.execute(f"SELECT COUNT(*) {joined}", args).fetchone()[0]
+    by_shape = dict(
+        con.execute(f"SELECT f.shape, COUNT(*) {joined} GROUP BY f.shape", args)
+    )
+
+    order = SORTS.get(sort)
+    if order is None:
+        raise ValueError(f"unknown sort {sort!r}; expected one of {', '.join(SORTS)}")
+
+    rows = con.execute(
+        f"SELECT f.*, p.text_ar AS phrase_ar, p.span_len, p.official_count, "
+        f"       p.exact_count {joined} ORDER BY {order} LIMIT ? OFFSET ?",
+        args + [limit, offset],
+    ).fetchall()
+
+    phrases = []
+    for row in rows:
+        # The road is the phrase plus whatever the positions still say together;
+        # keeping the tail separate lets the page show where the agreement ends.
+        tail = row["road_ar"][len(row["phrase_ar"]):].strip()
+        phrases.append(
+            {
+                "phrase_id": row["phrase_id"],
+                "phrase_ar": row["phrase_ar"],
+                "road_ar": row["road_ar"],
+                "road_tail_ar": tail or None,
+                "shared_after": row["shared_after"],
+                "shape": row["shape"],
+                "position_count": row["position_count"],
+                "branch_count": row["branch_count"],
+                "largest_branch": row["largest_branch"],
+                "singleton_branches": row["singleton_branches"],
+                "surah_count": row["surah_count"],
+                "span_len": row["span_len"],
+                "official_count": row["official_count"],
+                "exact_count": row["exact_count"],
+                "branches": _branches(con, row["phrase_id"]),
+            }
+        )
+
+    return {
+        "params": {
+            "shape": shape,
+            "min_positions": min_positions,
+            "surah": surah,
+            "q": q,
+            "sort": sort,
+            "limit": limit,
+            "offset": offset,
+        },
+        "counts": {"total": total, "returned": len(phrases), "by_shape": by_shape},
+        "phrases": phrases,
+    }
+
+
+def fork_detail(con: sqlite3.Connection, phrase_id: int) -> dict:
+    """One fork in full: every position with its āyah and its signpost."""
+    row = con.execute(
+        "SELECT f.*, p.text_ar AS phrase_ar, p.span_len, p.official_count, "
+        "       p.exact_count, p.source_verse_key FROM forks f "
+        "JOIN official_phrases p ON p.phrase_id = f.phrase_id WHERE f.phrase_id = ?",
+        (phrase_id,),
+    ).fetchone()
+    if row is None:
+        raise PhraseNotFound(f"no official phrase {phrase_id}")
+
+    words = _Words(con)
+    surah_names = {
+        r["surah"]: r["name_ar"] for r in con.execute("SELECT surah, name_ar FROM surahs")
+    }
+    juz_of = {
+        r["verse_key"]: r["juz"] for r in con.execute("SELECT verse_key, juz FROM ayahs")
+    }
+
+    branches = _branches(con, phrase_id)
+    for branch in branches:
+        detailed = []
+        for member in branch["positions"]:
+            source = con.execute(
+                "SELECT o.start_word_id, o.end_word_id, o.verse_key, o.page, "
+                "       o.in_official, o.in_exact, o.group_id, o.link, "
+                "       g.kind, g.cue_ar, g.cue_window, g.continuation_ar, "
+                "       g.continuation_unique, g.strength, g.text_ar, g.evidence "
+                "FROM official_positions o LEFT JOIN pegs g ON g.pos_id = o.pos_id "
+                "WHERE o.pos_id = ?",
+                (member["pos_id"],),
+            ).fetchone()
+            position = _position(
+                con,
+                words,
+                {
+                    "start_word_id": source["start_word_id"],
+                    "end_word_id": source["end_word_id"],
+                    "verse_key": source["verse_key"],
+                    "page": source["page"],
+                    "line": None,
+                },
+                surah_names,
+                juz_of,
+            )
+            position |= {
+                "pos_id": member["pos_id"],
+                "in_official": bool(source["in_official"]),
+                "in_exact": bool(source["in_exact"]),
+                "group_id": source["group_id"],
+                "link": source["link"],
+                "peg": _peg(source),
+            }
+            detailed.append(position)
+        branch["positions"] = detailed
+
+    tail = row["road_ar"][len(row["phrase_ar"]):].strip()
+    return {
+        "phrase_id": row["phrase_id"],
+        "phrase_ar": row["phrase_ar"],
+        "road_ar": row["road_ar"],
+        "road_tail_ar": tail or None,
+        "shared_after": row["shared_after"],
+        "shape": row["shape"],
+        "position_count": row["position_count"],
+        "branch_count": row["branch_count"],
+        "largest_branch": row["largest_branch"],
+        "singleton_branches": row["singleton_branches"],
+        "surah_count": row["surah_count"],
+        "span_len": row["span_len"],
+        "official_count": row["official_count"],
+        "exact_count": row["exact_count"],
+        "source_verse_key": row["source_verse_key"],
+        "branches": branches,
+    }
 
 
 def _subsumed(match: dict, others: list[dict]) -> bool:
