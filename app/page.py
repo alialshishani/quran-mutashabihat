@@ -141,6 +141,20 @@ h2.section { font-family:Newsreader,Georgia,serif; font-weight:500; font-size:1.
 .dabit-text { font-family:"IBM Plex Sans Arabic",sans-serif; direction:rtl; text-align:right;
               font-size:1.02rem; line-height:1.95; }
 
+.peg { border-inline-start:3px solid var(--vary-edge); background:var(--vary-bg);
+       border-radius:0 8px 8px 0; padding:.6rem .9rem; margin:.9rem 0 .2rem; }
+.peg-code { font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.08em;
+            text-transform:uppercase; color:var(--vary-ink); margin-bottom:.25rem; }
+.peg-text { font-family:"IBM Plex Sans Arabic",sans-serif; direction:rtl; text-align:right;
+            font-size:1.02rem; line-height:1.95; color:var(--vary-ink); }
+.peg.sibling { border-inline-start-width:2px; background:transparent; padding:.2rem .6rem; margin:.2rem 0 0; }
+.peg.sibling .peg-text { font-size:.92rem; line-height:1.7; color:var(--ink-soft); }
+
+details.siblings { margin-top:.6rem; }
+details.siblings > summary { cursor:pointer; font-size:.8rem; color:var(--accent);
+                             padding:.35rem 0; list-style-position:inside; }
+details.siblings[open] > summary { margin-bottom:.4rem; }
+
 .positions { border-top:1px solid var(--rule-soft); margin-top:.6rem; }
 .pos { display:grid; gap:.15rem .9rem; grid-template-columns:11rem 1fr;
        padding:.7rem 0; border-bottom:1px solid var(--rule-soft); }
@@ -245,6 +259,73 @@ function positionRow(pos, isSelf) {
   return row;
 }
 
+const PEG_LABEL = {
+  CUE_BEFORE: "cue · the word before",
+  SOLE_IN_SURAH: "cue · only one in the sūrah",
+  ORDINAL_IN_SURAH: "cue · counted within the sūrah",
+};
+
+function pegBox(peg, sibling) {
+  const box = el("div", "peg" + (sibling ? " sibling" : ""));
+  if (!sibling) {
+    box.appendChild(
+      el(
+        "div",
+        "peg-code",
+        `${PEG_LABEL[peg.kind] || peg.kind} · strength ${peg.strength.toFixed(2)}`
+      )
+    );
+  }
+  box.appendChild(el("div", "peg-text", peg.text_ar));
+  return box;
+}
+
+// One official mutashābih phrase: what tells this position from its siblings.
+function officialCard(p) {
+  const card = el("div", "group");
+  const head = el("div", "group-head");
+  head.appendChild(el("span", "chip", `phrase ${p.phrase_id}`));
+  head.appendChild(el("span", "chip on", `${p.set_count} positions`));
+  head.appendChild(el("span", "chip", `${p.surah_count} sūrahs`));
+  if (p.exact_count > p.official_count) {
+    const chip = el("span", "chip flag", `+${p.set_count - p.official_count} unlisted`);
+    chip.title =
+      `The official list names ${p.official_count} positions; the muṣḥaf carries ` +
+      `${p.set_count}. The peg is verified against all of them.`;
+    head.appendChild(chip);
+  }
+  card.appendChild(head);
+
+  const frame = el("div", "frame");
+  frame.appendChild(el("div", "frame-label", "Shared phrase · official mutashābih"));
+  const ft = el("div", "arabic");
+  ft.textContent = p.text_ar;
+  frame.appendChild(ft);
+  card.appendChild(frame);
+
+  for (const here of p.here) {
+    if (here.peg) card.appendChild(pegBox(here.peg, false));
+    const positions = el("div", "positions");
+    positions.appendChild(positionRow(here, true));
+    card.appendChild(positions);
+  }
+
+  if (p.elsewhere.length) {
+    const details = el("details", "siblings");
+    details.appendChild(
+      el("summary", null, `The other ${p.elsewhere.length} position(s), each with its own peg`)
+    );
+    const positions = el("div", "positions");
+    for (const other of p.elsewhere) {
+      positions.appendChild(positionRow(other, false));
+      if (other.peg) positions.appendChild(pegBox(other.peg, true));
+    }
+    details.appendChild(positions);
+    card.appendChild(details);
+  }
+  return card;
+}
+
 function groupCard(m) {
   const card = el("div", "group");
   const head = el("div", "group-head");
@@ -312,11 +393,28 @@ function render(data) {
   out.appendChild(card);
 
   const stats = el("dl", "stats");
+  if (data.params.official) {
+    stats.appendChild(stat("Official phrases", data.counts.official_phrases));
+    stats.appendChild(stat("Positions to tell apart", data.counts.official_positions));
+  }
   stats.appendChild(stat("Repeated phrases", data.counts.matches));
   stats.appendChild(stat("With a ḍābiṭ", data.counts.with_dabit));
-  stats.appendChild(stat("Other positions", data.counts.other_positions));
   stats.appendChild(stat("Other āyāt", data.counts.distinct_ayat));
   out.appendChild(stats);
+
+  if (data.official && data.official.length) {
+    out.appendChild(el("h2", "section", "Official mutashābihāt, and what pegs each one"));
+    out.appendChild(
+      el(
+        "p",
+        "section-note",
+        "Curated phrases from the QUL mutashābihāt list. The peg under each is the cue " +
+          "that identifies this position and no other in the set — verified against every " +
+          "position the muṣḥaf actually carries, not only the ones the list names."
+      )
+    );
+    for (const p of data.official) out.appendChild(officialCard(p));
+  }
 
   if (!data.matches.length) {
     const n = el("div", "note");

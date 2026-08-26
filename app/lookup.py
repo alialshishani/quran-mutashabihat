@@ -190,6 +190,128 @@ def _position(
     }
 
 
+def _has_official(con: sqlite3.Connection) -> bool:
+    """Whether `pipeline.official` and `pipeline.pegs` have run on this corpus."""
+    present = {
+        r[0]
+        for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name IN ('official_phrases', 'official_positions', 'pegs')"
+        )
+    }
+    if len(present) < 3:
+        return False
+    return bool(con.execute("SELECT COUNT(*) FROM pegs LIMIT 1").fetchone()[0])
+
+
+def _peg(row: sqlite3.Row) -> dict | None:
+    if row is None or row["kind"] is None:
+        return None
+    return {
+        "kind": row["kind"],
+        "cue_ar": row["cue_ar"],
+        "cue_window": row["cue_window"],
+        "continuation_ar": row["continuation_ar"],
+        "continuation_unique": bool(row["continuation_unique"]),
+        "strength": row["strength"],
+        "text_ar": row["text_ar"],
+        "evidence": json.loads(row["evidence"]) if row["evidence"] else None,
+    }
+
+
+def official_matches(
+    con: sqlite3.Connection,
+    surah: int,
+    ayah: int,
+    words: _Words,
+    surah_names: dict[int, str],
+    juz_of: dict[str, int],
+) -> list[dict]:
+    """Official mutashābih phrases touching this āyah, each position with its peg.
+
+    The peg is the point of this section: for the position sitting in the āyah
+    asked about, it is the cue that tells it from its siblings; for each sibling,
+    it is what tells that one apart in turn.
+    """
+    bounds = con.execute(
+        "SELECT first_word_id, last_word_id FROM ayahs WHERE surah = ? AND ayah = ?",
+        (surah, ayah),
+    ).fetchone()
+    hits = con.execute(
+        "SELECT DISTINCT phrase_id FROM official_positions "
+        "WHERE start_word_id <= ? AND end_word_id >= ?",
+        (bounds["last_word_id"], bounds["first_word_id"]),
+    ).fetchall()
+
+    out = []
+    for hit in hits:
+        phrase = con.execute(
+            "SELECT * FROM official_phrases WHERE phrase_id = ?", (hit["phrase_id"],)
+        ).fetchone()
+        positions = []
+        for row in con.execute(
+            "SELECT o.*, p.kind, p.cue_ar, p.cue_window, p.continuation_ar, "
+            "       p.continuation_unique, p.strength, p.text_ar, p.evidence "
+            "FROM official_positions o LEFT JOIN pegs p ON p.pos_id = o.pos_id "
+            "WHERE o.phrase_id = ? ORDER BY o.start_word_id",
+            (hit["phrase_id"],),
+        ):
+            position = _position(
+                con,
+                words,
+                {
+                    "start_word_id": row["start_word_id"],
+                    "end_word_id": row["end_word_id"],
+                    "verse_key": row["verse_key"],
+                    "page": row["page"],
+                    "line": None,
+                },
+                surah_names,
+                juz_of,
+            )
+            position |= {
+                "pos_id": row["pos_id"],
+                "in_official": bool(row["in_official"]),
+                "in_exact": bool(row["in_exact"]),
+                "group_id": row["group_id"],
+                "link": row["link"],
+                "is_query": row["start_word_id"] <= bounds["last_word_id"]
+                and row["end_word_id"] >= bounds["first_word_id"],
+                "peg": _peg(row),
+            }
+            positions.append(position)
+
+        here = [p for p in positions if p["is_query"]]
+        out.append(
+            {
+                "phrase_id": phrase["phrase_id"],
+                "source": phrase["source"],
+                "text_ar": phrase["text_ar"],
+                "span_len": phrase["span_len"],
+                "set_count": phrase["set_count"],
+                "official_count": phrase["official_count"],
+                "exact_count": phrase["exact_count"],
+                "surah_count": phrase["surah_count"],
+                "here": here,
+                "elsewhere": [p for p in positions if not p["is_query"]],
+                "positions": positions,
+            }
+        )
+
+    # Strongest peg for the position in this āyah first; a wider confusion set
+    # is the more urgent one to hold apart.
+    out.sort(
+        key=lambda p: (
+            -max((h["peg"]["strength"] if h["peg"] else 0) for h in p["here"])
+            if p["here"]
+            else 0,
+            -p["set_count"],
+            p["phrase_id"],
+        )
+    )
+    return out
+
+
 def _subsumed(match: dict, others: list[dict]) -> bool:
     """True when `match` adds nothing another match on this āyah does not.
 
@@ -224,6 +346,7 @@ def lookup(
     min_occurrences: int = 2,
     limit: int | None = DEFAULT_LIMIT,
     collapse: bool = True,
+    official: bool = True,
 ) -> dict:
     """Every repeated span touching `surah:ayah`, strongest peg first."""
     row = _ayah_row(con, surah, ayah)
@@ -322,6 +445,13 @@ def lookup(
     if limit is not None:
         matches = matches[:limit]
 
+    has_official = official and _has_official(con)
+    official_phrases = (
+        official_matches(con, surah, ayah, words, surah_names, juz_of)
+        if has_official
+        else []
+    )
+
     ayah_words = _ayah_words(con, row["verse_key"], words)
     covered = {
         w
@@ -356,6 +486,7 @@ def lookup(
             "min_occurrences": min_occurrences,
             "limit": limit,
             "collapse": collapse,
+            "official": has_official,
         },
         "counts": {
             "matches": total,
@@ -363,6 +494,9 @@ def lookup(
             "with_dabit": with_dabit,
             "other_positions": other_positions,
             "distinct_ayat": distinct_ayat,
+            "official_phrases": len(official_phrases),
+            "official_positions": sum(len(p["elsewhere"]) for p in official_phrases),
         },
+        "official": official_phrases,
         "matches": matches,
     }

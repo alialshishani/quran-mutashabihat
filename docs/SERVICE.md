@@ -19,6 +19,13 @@ python -m pipeline.pass_a --scope full --rebuild
 python -m pipeline.apply_rules --scope full --rebuild
 ```
 
+For the official mutashābihāt section and its pegs:
+
+```bash
+python -m pipeline.official --rebuild
+python -m pipeline.pegs --rebuild
+```
+
 ## Endpoints
 
 | Route | Purpose |
@@ -39,6 +46,7 @@ python -m pipeline.apply_rules --scope full --rebuild
 | `min_occurrences` | `2` | Drop phrases occurring fewer times than this. |
 | `limit` | `25` | Cap the phrases returned. Summary counts ignore it. |
 | `collapse` | `1` | Drop a span that a longer span covers **and** whose positions are a subset of that longer span's. Set `0` to see every span. |
+| `official` | `1` | Include the official mutashābihāt section and its pegs. Set `0` to skip it. |
 
 Errors are JSON: `400` for a parameter the caller can fix, `404` for a route or
 an āyah that does not exist.
@@ -72,6 +80,35 @@ is what lets the page show the similar āyah in full with the shared part dimmed
 Ranking: phrases with a verified ḍābiṭ first (strongest first), then the longest
 span, then the most positions.
 
+### The `official` section
+
+Present when `pipeline.official` and `pipeline.pegs` have run (`params.official`
+says whether it is). One entry per curated QUL mutashābih phrase touching the
+āyah:
+
+```jsonc
+{
+  "phrase_id": 16345, "text_ar": "…", "span_len": 4,
+  "set_count": 89, "official_count": 62, "exact_count": 89, "surah_count": 20,
+  "here":      [ { /* the position inside this āyah, with its peg */ } ],
+  "elsewhere": [ { /* every sibling, each with its own peg */ } ]
+}
+```
+
+Each position adds `pos_id`, `in_official`, `in_exact`, `group_id`, `link`, and
+`peg`:
+
+```jsonc
+"peg": { "kind": "CUE_BEFORE", "cue_ar": "تَكْفُرُونِ", "cue_window": 1,
+         "continuation_ar": "ٱسْتَعِينُوا۟", "continuation_unique": true,
+         "strength": 0.95, "text_ar": "ما قبله (…) وحده من بين 89 مواضع…",
+         "evidence": { /* everything the sentence was built from */ } }
+```
+
+`kind` is one of `CUE_BEFORE`, `SOLE_IN_SURAH`, `ORDINAL_IN_SURAH`. What each
+means, and why a unique *following* word is not among them, is in
+[PEGS.md](PEGS.md).
+
 ## What it does not do
 
 - No new analysis. Every phrase, count, and ḍābiṭ is read from the tables
@@ -79,13 +116,15 @@ span, then the most positions.
 - No Qur'anic text of its own. Arabic is copied out of `words.text_uthmani` and
   ḍābiṭ sentences out of `dawabit.text_ar`.
 - No claim about meaning. A ḍābiṭ says where a wording sits, not why.
-- The QUL `mutashabihat` (73) and `similar-ayah` (74) resources are downloaded
-  but not ingested; matches here come from this project's own pass-A detection.
+- The `matches` section is this project's own pass-A detection. The `official`
+  section is the curated QUL list (resource 73), bound to those groups by
+  `pipeline.official`. Resource 74 is ingested into `similar_ayahs` but not yet
+  surfaced.
 
 ## Tests
 
 ```bash
-python -m pytest tests/test_lookup.py -q
+python -m pytest tests/ -q
 ```
 
 They run against the real `data/quran.db` and skip if it is not built.

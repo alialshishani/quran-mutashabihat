@@ -31,6 +31,40 @@ rules:
     # Prior weight, before verification confidence is applied.
     prior: 0.9
 
+pegs:
+  # A peg identifies ONE position of a shared phrase among all the positions a
+  # reciter could confuse it with. It is verified against the confusion set, not
+  # asserted: the cue must be carried by this position and by no other.
+  #
+  # The confusion set is the union of the official mutashābihāt list for the
+  # phrase and every exact repeat of it in the muṣḥaf. Neither source alone is
+  # the whole set — the official list omits real repeats, and exact matching
+  # misses the near-variants that make a phrase confusable in the first place.
+  confusion_set:
+    # Fold exact repeats of the phrase into its official position list.
+    include_exact_repeats: true
+
+  cue:
+    # Widest cue worth offering. Past four words the "cue" is just more recitation
+    # and stops being a peg a memoriser can hold.
+    max_window: 4
+    # Cues and continuations are compared on the normalization profile below, so
+    # orthographic variants of one word do not read as a distinction.
+    profile: standard
+
+  strength:
+    # A one-word cue is the strongest peg there is; each extra word needed costs.
+    cue_before: 0.95
+    per_extra_cue_word: 0.1
+    # The sūrah is a cue the reciter always has, but it only resolves the position
+    # when the phrase occurs there once.
+    sole_in_surah: 0.75
+    # Counting occurrences within a sūrah is a real peg but the most fragile one.
+    ordinal_in_surah: 0.55
+    # Applied when the continuation is not unique either — the peg tells the
+    # reciter where they are, but not yet what makes this position different.
+    ambiguous_payload: 0.85
+
 output:
   # Ranking cap for the human-readable report.
   max_groups_in_report: 200
