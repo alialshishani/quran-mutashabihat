@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,9 +42,23 @@ CREATE TABLE IF NOT EXISTS lines (
   last_word_id  INTEGER,
   src_first   INTEGER,           -- source script ids, markers included
   src_last    INTEGER,
+  width_chars INTEGER,           -- how much width the line asks for; see _width
   PRIMARY KEY (page, line)
 );
 """
+
+
+def _width(text: str) -> int:
+    """How wide a line asks to be, in characters that advance the pen.
+
+    Arabic combining marks — the ḥarakāt, the sukūn, the maddah — sit above or
+    below the letter and take no width of their own, so counting them would say
+    a heavily vowelled line is wider than it prints. What is left is a good
+    enough proxy for width to rank lines against each other, which is all the
+    typesetting needs: the size the muṣḥaf is set at is the size at which its
+    densest line fills the measure.
+    """
+    return sum(1 for char in text if unicodedata.category(char) != "Mn")
 
 
 def layout_path(con: sqlite3.Connection) -> Path:
@@ -60,6 +75,7 @@ def layout_path(con: sqlite3.Connection) -> Path:
 def build(con: sqlite3.Connection) -> tuple[list[tuple], list[str]]:
     """One row per printed line, plus whatever disagreed with `words`."""
     word_of_src = dict(con.execute("SELECT src_word_id, word_id FROM words"))
+    text_of = dict(con.execute("SELECT word_id, text_uthmani FROM words"))
     stamped = {
         (row[0], row[1]): (row[2], row[3])
         for row in con.execute(
@@ -94,6 +110,7 @@ def build(con: sqlite3.Connection) -> tuple[list[tuple], list[str]]:
                 max(word_ids) if word_ids else None,
                 src_first,
                 src_last,
+                _width(" ".join(text_of[w] for w in word_ids)) if word_ids else 0,
             )
         )
         # The line is only usable if it agrees with the page/line already stamped
@@ -132,7 +149,7 @@ def main() -> int:
             "the corpus and the layout are out of step"
         )
 
-    con.executemany("INSERT INTO lines VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT INTO lines VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit()
 
     pages = con.execute("SELECT COUNT(DISTINCT page) FROM lines").fetchone()[0]
@@ -144,8 +161,12 @@ def main() -> int:
         "  SELECT 1 FROM lines l WHERE l.page = w.page AND l.line = w.line)"
     ).fetchone()[0]
     total = con.execute("SELECT COUNT(*) FROM words").fetchone()[0]
+    densest = con.execute(
+        "SELECT page, line, width_chars FROM lines ORDER BY width_chars DESC LIMIT 1"
+    ).fetchone()
     print(f"lines: {len(rows):,} across {pages:,} pages   {kinds}")
     print(f"words placed on a line: {placed:,} of {total:,}")
+    print(f"densest line: page {densest[0]} line {densest[1]} ({densest[2]} chars wide)")
     con.close()
     return 0
 

@@ -12,6 +12,7 @@ Endpoints
     GET /api/official?shape=all_but_one   the fork list, filtered and paged
     GET /api/official/7060                one fork in full
     GET /api/page/42                      one printed page, line for line
+    GET /api/measure                      the densest lines, for setting the type
     GET /api/surahs                       sūrah list with āyah counts
     GET /api/scopes                       which analysis scopes are populated
     GET /api/health                       corpus row counts
@@ -111,6 +112,9 @@ def build_response(con: sqlite3.Connection, path: str, query: dict) -> tuple[int
         if not L.has_forks(con):
             return HTTPStatus.SERVICE_UNAVAILABLE, {"error": "forks not built"}
         return HTTPStatus.OK, L.fork_detail(con, int(matched.group(1)))
+
+    if path == "/api/measure":
+        return HTTPStatus.OK, L.measure_lines(con)
 
     if path == "/api/surahs":
         return HTTPStatus.OK, L.surahs(con)

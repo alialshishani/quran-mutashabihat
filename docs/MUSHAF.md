@@ -57,13 +57,34 @@ text in a general Arabic face instead:
    the Complex ships under, via `local()`;
 2. otherwise Amiri Quran, from Google Fonts.
 
-Because a web font cannot elongate its own glyphs the way the Complex's do, the
-page is set at one size — the size at which the densest line of that page fills
-the measure, as print is set — and each other line is stretched sideways to the
-same measure, up to `MAX_STRETCH`. A line too sparse to reach the measure that
-way keeps its glyphs and opens its word spaces instead. The text block itself
-holds a fixed 1:1.55 proportion and spreads its lines down it, so a 15-line page
-and the eight-line opening sit on the same sheet.
+### Why the lines look loose
+
+The Complex's fonts justify by **elongating their own glyphs**, and that is not
+a detail — measured over all 8,820 printed lines, the median line asks for only
+68% of the measure it is set in. In print that missing third is absorbed by
+elongation, invisibly. A general Arabic face cannot elongate, so the third has
+to go somewhere, and there are only three places to put it:
+
+| | Artefact |
+|---|---|
+| Fit each page to its own densest line | Type size swings 2.27× between pages — page 1 large, page 479 small |
+| Scale lines sideways to the measure | Distorted letterforms; the stroke weights go wrong |
+| **One size for the book, gaps take the slack** | Word spaces open up — ~32% on the median line |
+
+The third is what the page does, because it is the only one that leaves the
+letterforms alone and the one print itself would recognise: a muṣḥaf is set at
+one size and holds it for 604 pages. `pipeline.layout` records `width_chars` per
+line — characters that advance the pen, so combining marks do not count — and
+`/api/measure` hands the densest few lines to the page, which measures them in
+whatever face is actually drawing and sets the book from the widest. Pages 1 and
+2 are fitted to themselves, which is the exception the print makes too: eight
+lines in their own frame, set larger than the body of the book.
+
+None of the three is right. Elongation is, and only the Complex's own fonts do
+it — see item 3 under "Next".
+
+The text block holds a fixed 1:1.55 proportion and spreads its lines down it, so
+a 15-line page and the eight-line opening sit on the same sheet.
 
 Getting to a glyph-exact clone is a data problem, not a rendering one — see
 "Next" below.
@@ -94,6 +115,7 @@ reads; `Esc` closes the panel. The view deep-links as `#p=89` and `#p=89&a=4:69`
 | `GET /mushaf` | The page. |
 | `GET /api/page/89` | One printed page: its lines, the tokens on each, the āyāt on it and what repeats there. |
 | `GET /api/page?page=89` | Same, query form. Takes `scope` like the other endpoints. |
+| `GET /api/measure` | The densest lines in the muṣḥaf, for the page to set one type size by. |
 
 `/api/health` reports `pages` alongside the row counts; it is `0` until
 `pipeline.layout` has run, and the page route answers `503` with the command to
@@ -121,8 +143,9 @@ Roughly in the order the value lands.
    fonts, and the script resource carrying the per-word glyph code for that font
    version. With both, `pipeline.ingest` gains a `code_v1`/`code_v2` column,
    `app/server.py` gains a `/fonts/` route, and the page swaps
-   `font-family: qcf-p089` in per page — at which point the stretch machinery in
-   `fitLines` should go, because the Complex's fonts justify themselves. Record
+   `font-family: qcf-p089` in per page — at which point `fitLines`, `/api/measure`
+   and `width_chars` can all go, because the Complex's fonts justify themselves
+   and the loose-line problem above stops existing. Record
    the checksums and licence in `PROVENANCE.md` first; the redistribution item
    open there covers the fonts too, and more sharply.
 4. **The V2 layout.** Both layouts are vendored and `pipeline.layout` follows

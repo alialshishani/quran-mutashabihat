@@ -657,6 +657,43 @@ def _basmalah(con: sqlite3.Connection) -> list[dict]:
     ]
 
 
+def measure_lines(con: sqlite3.Connection, limit: int = 8) -> dict:
+    """The densest lines in the muṣḥaf, for the page to set its type by.
+
+    A muṣḥaf is set at one size and holds it for 604 pages; density differences
+    between pages show up as elongation, not as bigger letters. To hold one size
+    the page has to know the widest line in the book, and `width_chars` only
+    ranks candidates — the real width depends on the face doing the rendering —
+    so the top few are handed over and measured where they will be drawn.
+    """
+    if not has_layout(con):
+        raise LayoutMissing("no page layout; run: python -m pipeline.layout --rebuild")
+    rows = con.execute(
+        "SELECT page, line, first_word_id, last_word_id, width_chars FROM lines "
+        "WHERE line_type = 'ayah' AND first_word_id IS NOT NULL "
+        "ORDER BY width_chars DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return {
+        "lines": [
+            {
+                "page": row["page"],
+                "line": row["line"],
+                "width_chars": row["width_chars"],
+                "text": " ".join(
+                    w[0]
+                    for w in con.execute(
+                        "SELECT text_uthmani FROM words WHERE word_id BETWEEN ? AND ? "
+                        "ORDER BY word_id",
+                        (row["first_word_id"], row["last_word_id"]),
+                    )
+                ),
+            }
+            for row in rows
+        ]
+    }
+
+
 def mushaf_page(con: sqlite3.Connection, page: int, *, scope: str = DEFAULT_SCOPE) -> dict:
     """One printed page: its lines, the tokens on each, and what repeats there.
 

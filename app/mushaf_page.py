@@ -134,18 +134,19 @@ button.step { font-size:1rem; line-height:1; padding:.4rem .75rem; }
   aspect-ratio:1 / 1.55;
 }
 .qline { position:relative; direction:rtl; line-height:1.35; }
-/* The words of the line. It is set at its natural width and stretched sideways
-   to the measure, which is what the muṣḥaf does to its glyphs; only a line too
-   sparse to stretch that far falls back to opening its word spaces instead. */
+/* The words of the line, justified to the measure by their spaces alone. The
+   letterforms are never scaled: a stretched glyph is not the muṣḥaf's glyph. */
 .qtext {
   display:flex; align-items:baseline; justify-content:space-between;
   font-family:"Mushaf","Amiri Quran",serif; white-space:nowrap;
-  transform-origin:100% 50%;
 }
-.qtext.tight { width:max-content; justify-content:flex-start; }
 .qtext.center { width:max-content; margin-inline:auto; justify-content:center; }
 .qline.measure .qtext { width:max-content; justify-content:flex-start;
-                        transform:none; visibility:hidden; }
+                        visibility:hidden; }
+#probe {
+  position:absolute; visibility:hidden; pointer-events:none; white-space:nowrap;
+  width:max-content; font-family:"Mushaf","Amiri Quran",serif;
+}
 .qtext .w { cursor:pointer; padding:0 .05em; border-radius:3px; }
 .qtext .w.shared { box-shadow:inset 0 -.09em 0 var(--gold-soft); }
 .qtext .w.pick { background:rgba(22,88,74,.20); }
@@ -272,6 +273,7 @@ const ind = (n) => String(n).replace(/[0-9]/g, (d) => String.fromCharCode(0x0660
 let SURAHS = [];
 let PAGE = null;      // the page payload currently drawn
 let PICKED = null;    // verse_key of the selected āyah
+let DENSEST = 0;      // width of the muṣḥaf's densest line, at the base size
 
 /* -- the sheet ------------------------------------------------------------ */
 
@@ -317,49 +319,57 @@ function drawLine(line, marksBy) {
   return node;
 }
 
-// How far a line may be stretched sideways before the stretch reads as a
-// distortion rather than as the elongation the muṣḥaf itself uses.
-const MAX_STRETCH = 1.18;
-
-function measure(box) {
-  const widths = [];
+// The widest a line of this page wants to be, at the page's base size.
+function widestHere(box) {
+  let widest = 0;
   for (const line of box.querySelectorAll(".qline")) {
     line.classList.add("measure");
-    widths.push(line.querySelector(".qtext").scrollWidth);
+    widest = Math.max(widest, line.querySelector(".qtext").scrollWidth);
     line.classList.remove("measure");
   }
-  return widths;
+  return widest;
 }
 
-// KFGQPC justifies by stretching the glyphs themselves; a web font cannot. The
-// page is set at one size, as print is — the size at which the densest line of
-// the page fills the measure — and every other line is stretched sideways to
-// that same measure. A line too sparse to reach it that way keeps its glyphs
-// and opens its word spaces instead.
+// The muṣḥaf's densest line, measured once in the face actually doing the
+// drawing. `width_chars` only ranks the candidates; which of them is widest
+// depends on the font, so all of them are measured and the largest wins.
+async function measureBook() {
+  const probe = $("#probe");
+  const base = parseFloat(getComputedStyle($("#lines")).fontSize);
+  probe.style.fontSize = base + "px";
+  try {
+    const data = await (await fetch("/api/measure")).json();
+    for (const line of data.lines || []) {
+      probe.textContent = line.text;
+      DENSEST = Math.max(DENSEST, probe.scrollWidth);
+    }
+  } catch (err) {
+    DENSEST = 0;   // fall back to fitting each page to itself
+  }
+  probe.textContent = "";
+}
+
+// KFGQPC justifies by elongating the glyphs themselves, which it can do because
+// it cuts a font per page. A general face cannot, and faking it — scaling a line
+// sideways to fill the measure — distorts the letterforms, which is worse than
+// the thing it fixes. So the type is set the way print sets it: ONE size, held
+// across the whole muṣḥaf, chosen so the densest line in the book fills the
+// measure. Every other line is left with slack, which opens its word spaces.
+//
+// Pages 1 and 2 are the exception the print makes too: eight lines inside their
+// own frame, set larger than the body of the book. A page that is not the usual
+// fifteen lines is fitted to itself.
 function fitLines() {
   const box = $("#lines");
   const width = box.clientWidth;
   if (!width) return;
   box.style.fontSize = "";
-  for (const text of box.querySelectorAll(".qtext")) {
-    text.style.transform = "";
-    text.classList.remove("tight");
-  }
   const base = parseFloat(getComputedStyle(box).fontSize);
-  const widest = Math.max(...measure(box), 0);
-  if (!widest) return;
-  const fit = Math.max(0.6, Math.min(1.6, width / widest));
+  const opening = PAGE && PAGE.lines_printed < 15;
+  const reference = !opening && DENSEST ? DENSEST : widestHere(box);
+  if (!reference) return;
+  const fit = Math.max(0.5, Math.min(1.8, width / reference));
   box.style.fontSize = (base * fit).toFixed(2) + "px";
-
-  const natural = measure(box);
-  box.querySelectorAll(".qline").forEach((line, i) => {
-    const text = line.querySelector(".qtext");
-    if (text.classList.contains("center") || !natural[i]) return;
-    const need = width / natural[i];
-    if (need > MAX_STRETCH) return;   // too sparse to stretch: leave the spaces
-    text.classList.add("tight");
-    text.style.transform = "scaleX(" + need.toFixed(4) + ")";
-  });
 }
 
 // The box is measured, so nothing can be fitted until it has a width: the first
@@ -373,7 +383,11 @@ function watchWidth() {
     requestAnimationFrame(fitLines);
   }).observe($("#lines"));
   if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => requestAnimationFrame(fitLines));
+    document.fonts.ready.then(async () => {
+      DENSEST = 0;
+      await measureBook();
+      requestAnimationFrame(fitLines);
+    });
   }
 }
 
@@ -646,7 +660,7 @@ async function loadSurahs() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  await loadSurahs();
+  await Promise.all([loadSurahs(), measureBook()]);
   const start = fromHash();
   await go(start.page, start.key);
 
@@ -707,6 +721,8 @@ def html() -> str:
       <select id="surah"><option value="">sūrah…</option></select></span>
     <span class="count" id="total"></span>
   </div>
+
+  <div id="probe"></div>
 
   <div class="sheet">
     <div class="sheet-head">
