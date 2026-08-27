@@ -5,11 +5,13 @@
 
 Endpoints
     GET /                                 the āyah lookup page
+    GET /mushaf                           the muṣḥaf, page by page
     GET /official                         the official mutashābihāt, as forks
     GET /api/mutashabih?surah=2&ayah=25   JSON for one āyah
     GET /api/mutashabih/2/25              same, path form
     GET /api/official?shape=all_but_one   the fork list, filtered and paged
     GET /api/official/7060                one fork in full
+    GET /api/page/42                      one printed page, line for line
     GET /api/surahs                       sūrah list with āyah counts
     GET /api/scopes                       which analysis scopes are populated
     GET /api/health                       corpus row counts
@@ -31,15 +33,18 @@ from urllib.parse import parse_qs, urlparse
 
 from app import lookup as L
 from app.forks_page import html as forks_html
+from app.mushaf_page import html as mushaf_html
 from app.page import html as lookup_html
 
 VERSE_PATH = re.compile(r"^/api/mutashabih/(\d+)[/:](\d+)$")
 PHRASE_PATH = re.compile(r"^/api/(?:official|forks)/(\d+)$")
+PAGE_PATH = re.compile(r"^/api/page/(\d+)$")
 
 # Sentinels: the router names a page, the handler renders and caches it.
 PAGE_LOOKUP = "page:lookup"
 PAGE_FORKS = "page:forks"
-PAGES = {PAGE_LOOKUP: lookup_html, PAGE_FORKS: forks_html}
+PAGE_MUSHAF = "page:mushaf"
+PAGES = {PAGE_LOOKUP: lookup_html, PAGE_FORKS: forks_html, PAGE_MUSHAF: mushaf_html}
 
 
 class BadRequest(ValueError):
@@ -69,6 +74,17 @@ def build_response(con: sqlite3.Connection, path: str, query: dict) -> tuple[int
         return HTTPStatus.OK, PAGE_LOOKUP
     if path in {"/official", "/forks"}:
         return HTTPStatus.OK, PAGE_FORKS
+    if path == "/mushaf":
+        return HTTPStatus.OK, PAGE_MUSHAF
+
+    matched = PAGE_PATH.match(path)
+    if matched or path == "/api/page":
+        page = int(matched.group(1)) if matched else _int_param(query, "page", None)
+        if page is None:
+            raise BadRequest("page is required, e.g. /api/page/42")
+        return HTTPStatus.OK, L.mushaf_page(
+            con, page, scope=query.get("scope", [L.DEFAULT_SCOPE])[0]
+        )
 
     if path == "/api/official" or path == "/api/forks":
         if not L.has_forks(con):
@@ -107,7 +123,12 @@ def build_response(con: sqlite3.Connection, path: str, query: dict) -> tuple[int
             table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in ("words", "ayahs", "surahs", "groups", "occurrences", "dawabit")
         }
-        return HTTPStatus.OK, {"status": "ok", "db": str(L.DB), "counts": counts}
+        return HTTPStatus.OK, {
+            "status": "ok",
+            "db": str(L.DB),
+            "counts": counts,
+            "pages": L.page_count(con),
+        }
 
     surah = ayah = None
     matched = VERSE_PATH.match(path)
@@ -148,6 +169,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        # The pages are generated per process, not per request; a cached copy in
+        # the browser survives a restart of the server and hides the change.
+        self.send_header("Cache-Control", "no-store")
         if self.cors:
             self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -173,8 +197,11 @@ class Handler(BaseHTTPRequestHandler):
         except BadRequest as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
-        except (L.AyahNotFound, L.PhraseNotFound) as exc:
+        except (L.AyahNotFound, L.PhraseNotFound, L.PageNotFound) as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
+            return
+        except L.LayoutMissing as exc:
+            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
             return
         except sqlite3.Error as exc:
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"database error: {exc}"})

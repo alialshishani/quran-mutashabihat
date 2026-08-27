@@ -52,9 +52,11 @@ def surahs(con: sqlite3.Connection) -> list[dict]:
             "name_ar": r["name_ar"],
             "ayah_count": r["ayah_count"],
             "revelation_place": r["revelation_place"],
+            "first_page": r["first_page"],
+            "last_page": r["last_page"],
         }
         for r in con.execute(
-            "SELECT surah, name_ar, ayah_count, revelation_place "
+            "SELECT surah, name_ar, ayah_count, revelation_place, first_page, last_page "
             "FROM surahs ORDER BY surah"
         )
     ]
@@ -566,6 +568,276 @@ def _subsumed(match: dict, others: list[dict]) -> bool:
             if keys <= {p["verse_key"] for p in other["positions"]}:
                 return True
     return False
+
+
+# -- the printed page ---------------------------------------------------------
+#
+# `pipeline.layout` carried the KFGQPC line table into the corpus, so a page can
+# be reproduced line for line rather than reflowed: the same words on the same
+# line, the same headings, and every āyah marker in the place it is printed.
+
+
+class PageNotFound(LookupError):
+    """The requested page is outside the muṣḥaf."""
+
+
+class LayoutMissing(LookupError):
+    """The `lines` table has not been built."""
+
+
+# The basmalah is read out of the corpus at this key rather than written here:
+# nothing in this repository composes Qur'anic text of its own (C1).
+BASMALAH_KEY = "1:1"
+
+
+def has_layout(con: sqlite3.Connection) -> bool:
+    present = con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lines'"
+    ).fetchone()
+    return bool(present) and bool(
+        con.execute("SELECT COUNT(*) FROM lines LIMIT 1").fetchone()[0]
+    )
+
+
+def page_count(con: sqlite3.Connection) -> int:
+    if not has_layout(con):
+        return 0
+    return con.execute("SELECT MAX(page) FROM lines").fetchone()[0] or 0
+
+
+def page_of(con: sqlite3.Connection, surah: int, ayah: int) -> int:
+    """The page an āyah starts on."""
+    return _ayah_row(con, surah, ayah)["page_start"]
+
+
+def _page_marks(
+    con: sqlite3.Connection, keys: list[str], scope: str
+) -> dict[str, dict[str, int]]:
+    """Per āyah on the page: how much there is to confuse it with.
+
+    Counted from the rows, per request, for the āyāt of this page only — the
+    page marks where a memoriser should stop, and the count is the reason.
+    """
+    marks = {key: {"official": 0, "phrases": 0} for key in keys}
+    if not keys:
+        return marks
+    holes = ",".join("?" * len(keys))
+
+    if _has_official(con):
+        for key, count in con.execute(
+            "SELECT a.verse_key, COUNT(DISTINCT o.phrase_id) "
+            "FROM ayahs a JOIN official_positions o "
+            "  ON o.start_word_id <= a.last_word_id AND o.end_word_id >= a.first_word_id "
+            f"WHERE a.verse_key IN ({holes}) GROUP BY a.verse_key",
+            keys,
+        ):
+            marks[key]["official"] = count
+
+    for key, count in con.execute(
+        "SELECT a.verse_key, COUNT(DISTINCT o.group_id) "
+        "FROM ayahs a JOIN occurrences o "
+        "  ON o.start_word_id <= a.last_word_id AND o.end_word_id >= a.first_word_id "
+        "JOIN groups g ON g.group_id = o.group_id AND g.scope = ? "
+        f"WHERE a.verse_key IN ({holes}) GROUP BY a.verse_key",
+        [scope, *keys],
+    ):
+        marks[key]["phrases"] = count
+    return marks
+
+
+def _basmalah(con: sqlite3.Connection) -> list[dict]:
+    return [
+        {"word_id": r["word_id"], "text": r["text_uthmani"]}
+        for r in con.execute(
+            "SELECT w.word_id, w.text_uthmani FROM words w, ayahs a "
+            "WHERE a.verse_key = ? AND w.word_id BETWEEN a.first_word_id AND a.last_word_id "
+            "ORDER BY w.word_id",
+            (BASMALAH_KEY,),
+        )
+    ]
+
+
+def mushaf_page(con: sqlite3.Connection, page: int, *, scope: str = DEFAULT_SCOPE) -> dict:
+    """One printed page: its lines, the tokens on each, and what repeats there.
+
+    Tokens are walked over the *source* id range of the line, so an āyah marker
+    lands where the muṣḥaf prints it — including the lines of this layout that
+    open with the marker closing the āyah of the line before.
+    """
+    if not has_layout(con):
+        raise LayoutMissing("no page layout; run: python -m pipeline.layout --rebuild")
+    total = page_count(con)
+    if not 1 <= page <= total:
+        raise PageNotFound(f"page {page} is outside the mushaf (1-{total})")
+
+    rows = con.execute(
+        "SELECT line, line_type, is_centered, surah, src_first, src_last "
+        "FROM lines WHERE page = ? ORDER BY line",
+        (page,),
+    ).fetchall()
+
+    words = {
+        r["src_word_id"]: r
+        for r in con.execute(
+            "SELECT word_id, src_word_id, surah, ayah, word_pos, text_uthmani "
+            "FROM words WHERE page = ? ORDER BY word_id",
+            (page,),
+        )
+    }
+    ids = [r["word_id"] for r in words.values()]
+    first_word, last_word = (min(ids), max(ids)) if ids else (0, -1)
+    spans = [r["src_first"] for r in rows if r["src_first"] is not None]
+    src_lo = min(spans, default=1)
+    src_hi = max((r["src_last"] for r in rows if r["src_last"] is not None), default=0)
+
+    # A marker carries no row in `words`; its source id is one past the last word
+    # of the āyah it closes, which is enough to place it.
+    markers = {
+        r["src"]: (r["surah"], r["ayah"])
+        for r in con.execute(
+            "SELECT a.surah, a.ayah, w.src_word_id + 1 AS src FROM ayahs a "
+            "JOIN words w ON w.word_id = a.last_word_id "
+            "WHERE w.src_word_id + 1 BETWEEN ? AND ?",
+            (src_lo, src_hi),
+        )
+    }
+
+    # Which words on this page are inside an official mutashābih phrase, so the
+    # page can underline the shared wording itself and not merely the āyah.
+    phrases_at: dict[int, list[int]] = {}
+    if ids and _has_official(con):
+        for hit in con.execute(
+            "SELECT phrase_id, start_word_id, end_word_id FROM official_positions "
+            "WHERE start_word_id <= ? AND end_word_id >= ?",
+            (last_word, first_word),
+        ):
+            lo = max(hit["start_word_id"], first_word)
+            hi = min(hit["end_word_id"], last_word)
+            for word_id in range(lo, hi + 1):
+                phrases_at.setdefault(word_id, []).append(hit["phrase_id"])
+
+    surah_rows = {r["surah"]: r for r in con.execute("SELECT * FROM surahs ORDER BY surah")}
+
+    keys: list[str] = []
+    lines: list[dict] = []
+    for row in rows:
+        line = {
+            "line": row["line"],
+            "type": row["line_type"],
+            "centered": bool(row["is_centered"]),
+        }
+        if row["line_type"] == "surah_name":
+            surah = surah_rows[row["surah"]]
+            line |= {
+                "surah": surah["surah"],
+                "name_ar": surah["name_ar"],
+                "ayah_count": surah["ayah_count"],
+                "revelation_place": surah["revelation_place"],
+            }
+        elif row["line_type"] == "basmallah":
+            line["words"] = _basmalah(con)
+        else:
+            tokens = []
+            for src in range(row["src_first"], row["src_last"] + 1):
+                word = words.get(src)
+                if word is not None:
+                    key = f"{word['surah']}:{word['ayah']}"
+                    if key not in keys:
+                        keys.append(key)
+                    tokens.append(
+                        {
+                            "kind": "word",
+                            "word_id": word["word_id"],
+                            "verse_key": key,
+                            "surah": word["surah"],
+                            "ayah": word["ayah"],
+                            "word_pos": word["word_pos"],
+                            "text": word["text_uthmani"],
+                            "phrase_ids": phrases_at.get(word["word_id"], []),
+                        }
+                    )
+                elif src in markers:
+                    surah, ayah = markers[src]
+                    tokens.append(
+                        {
+                            "kind": "marker",
+                            "verse_key": f"{surah}:{ayah}",
+                            "surah": surah,
+                            "ayah": ayah,
+                        }
+                    )
+            line["tokens"] = tokens
+        lines.append(line)
+
+    # The muṣḥaf prints a marker in the margin where a juz', a ḥizb or a rub'
+    # opens. A division opens at whichever of its āyāt comes first in the text.
+    meta: dict[str, sqlite3.Row] = {}
+    if keys:
+        meta = {
+            r["verse_key"]: r
+            for r in con.execute(
+                "SELECT verse_key, juz, hizb, rub, "
+                "  first_word_id = (SELECT MIN(x.first_word_id) FROM ayahs x "
+                "                   WHERE x.juz = a.juz) AS starts_juz, "
+                "  first_word_id = (SELECT MIN(x.first_word_id) FROM ayahs x "
+                "                   WHERE x.hizb = a.hizb) AS starts_hizb, "
+                "  first_word_id = (SELECT MIN(x.first_word_id) FROM ayahs x "
+                "                   WHERE x.rub = a.rub) AS starts_rub "
+                f"FROM ayahs a WHERE verse_key IN ({','.join('?' * len(keys))})",
+                keys,
+            )
+        }
+    marks = _page_marks(con, keys, scope)
+
+    ayat = []
+    for key in keys:
+        surah, ayah = (int(part) for part in key.split(":"))
+        ayat.append(
+            {
+                "verse_key": key,
+                "surah": surah,
+                "ayah": ayah,
+                "surah_name_ar": surah_rows[surah]["name_ar"],
+                "juz": meta[key]["juz"],
+                "hizb": meta[key]["hizb"],
+                "rub": meta[key]["rub"],
+                "starts_juz": bool(meta[key]["starts_juz"]),
+                "starts_hizb": bool(meta[key]["starts_hizb"]),
+                "starts_rub": bool(meta[key]["starts_rub"]),
+                "official": marks[key]["official"],
+                "phrases": marks[key]["phrases"],
+            }
+        )
+
+    on_page = sorted(
+        {a["surah"] for a in ayat}
+        | {line["surah"] for line in lines if line["type"] == "surah_name"}
+    )
+    return {
+        "page": page,
+        "pages": total,
+        "prev": page - 1 if page > 1 else None,
+        "next": page + 1 if page < total else None,
+        "lines_printed": len(lines),
+        "juz": ayat[0]["juz"] if ayat else None,
+        "hizb": ayat[0]["hizb"] if ayat else None,
+        "surahs": [
+            {
+                "surah": s,
+                "name_ar": surah_rows[s]["name_ar"],
+                "ayah_count": surah_rows[s]["ayah_count"],
+                "revelation_place": surah_rows[s]["revelation_place"],
+            }
+            for s in on_page
+        ],
+        "counts": {
+            "ayat": len(ayat),
+            "with_official": sum(1 for a in ayat if a["official"]),
+            "with_phrases": sum(1 for a in ayat if a["phrases"]),
+        },
+        "ayat": ayat,
+        "lines": lines,
+    }
 
 
 # -- the query ----------------------------------------------------------------

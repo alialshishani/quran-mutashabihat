@@ -27,17 +27,25 @@ python -m pipeline.pegs --rebuild
 python -m pipeline.forks --rebuild
 ```
 
+For the muṣḥaf page — the printed page, line for line:
+
+```bash
+python -m pipeline.layout --rebuild
+```
+
 ## Endpoints
 
 | Route | Purpose |
 |---|---|
 | `GET /` | The āyah lookup page. Deep-links as `#2:25`. |
 | `GET /official` | The forks page — the official mutashābihāt only. Filters live in the query string. |
+| `GET /mushaf` | The muṣḥaf, page by page. Deep-links as `#p=89` and `#p=89&a=4:69`. See `docs/MUSHAF.md`. |
 | `GET /api/official` | The fork list, filtered and paged. |
 | `GET /api/official/7060` | One fork in full, every position with its āyah and cue. |
 | `GET /api/mutashabih?surah=2&ayah=25` | Everything for one āyah (JSON). |
 | `GET /api/mutashabih/2/25` | Same, path form. |
-| `GET /api/surahs` | 114 sūrahs with āyah counts, for the picker. |
+| `GET /api/page/89` | One printed page: its lines, the tokens on each, and what repeats there. |
+| `GET /api/surahs` | 114 sūrahs with āyah counts and page ranges, for the pickers. |
 | `GET /api/scopes` | Which analysis scopes are populated. |
 | `GET /api/health` | Row counts per table. |
 

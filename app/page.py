@@ -530,6 +530,8 @@ def html() -> str:
     <span class="here">Look up an āyah</span>
     <span class="here">·</span>
     <a href="/official">Forks in the road</a>
+    <span class="here">·</span>
+    <a href="/mushaf">The muṣḥaf</a>
   </nav>
 
   <header>
