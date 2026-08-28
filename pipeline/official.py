@@ -11,7 +11,7 @@ What this pass produces per phrase is its **confusion set** — the union of
   * the official position list, and
   * every exact repeat of the phrase's own token sequence in the muṣḥaf.
 
-Neither source is the whole set. The official list omits real repeats (65
+Neither source is the whole set. The official list omits real repeats (36
 phrases here list fewer positions than the muṣḥaf actually contains), and exact
 matching misses the near-variants that make a phrase confusable in the first
 place. A peg verified against half the set is a peg that fails on the half it
@@ -39,6 +39,10 @@ EXTRACTED = ROOT / "data" / "raw" / "extracted"
 
 PHRASES_JSON = EXTRACTED / "qul-73-mutashabihat__phrases.json"
 SIMILAR_DB = EXTRACTED / "qul-74-similar-ayah.db"
+
+# How far either side of the listed start to look for the phrase's own tokens.
+# A window this small only ever finds the phrase where the list already pointed.
+SNAP = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS official_phrases (
@@ -122,6 +126,32 @@ class Corpus:
             ):
                 out.append(start)
         return out
+
+
+def _snap(corpus: Corpus, tokens: list[str], start: int) -> int:
+    """Where the phrase's own tokens begin, near where the list marked them.
+
+    The list says which words of an āyah carry the phrase, and for a handful of
+    positions it says it a word off: 29:17 marks `دون` for the phrase
+    `من دون الله`, so a window of the phrase's length reads `دون الله لا` --
+    three words the āyah does contain, in an order it does not. Where the
+    phrase's own tokens sit within a word or three of the mark, that is the
+    place meant, and the mark is corrected to it.
+
+    A position whose tokens match nowhere nearby is left exactly where the list
+    put it. The list gathers near-variants on purpose -- most positions that do
+    not match their phrase differ in wording, not in alignment -- and a variant
+    is a fact about the corpus, not an error to be snapped away.
+    """
+    surah = corpus.surah[start]
+    for offset in sorted(range(-SNAP, SNAP + 1), key=lambda o: (abs(o), o)):
+        first = start + offset
+        if all(
+            corpus.norm.get(first + i) == tok and corpus.surah.get(first + i) == surah
+            for i, tok in enumerate(tokens)
+        ):
+            return first
+    return start
 
 
 def _load_phrases() -> dict:
@@ -216,7 +246,7 @@ def main() -> int:
 
     phrase_rows, position_rows = [], []
     pos_id = 0
-    unmapped_sources = unmapped_positions = clipped = 0
+    unmapped_sources = unmapped_positions = clipped = snapped = 0
     enriched = 0  # phrases the muṣḥaf carries in more places than the list says
 
     for raw_id, phrase in sorted(phrases.items(), key=lambda kv: int(kv[0])):
@@ -237,7 +267,13 @@ def main() -> int:
                 if start is None or end is None:
                     unmapped_positions += 1
                     continue
-                official[start] = end
+                aligned = _snap(corpus, tokens, start)
+                if aligned != start:
+                    snapped += 1
+                # `end` stays as the list gave it: the column records the extent
+                # the list marked, and the window below is measured from the
+                # start regardless.
+                official[aligned] = end
 
         exact = set()
         if params["include_exact_repeats"]:
@@ -316,6 +352,8 @@ def main() -> int:
             f"{unmapped_positions} position(s) that do not map onto the corpus, "
             f"{clipped} position(s) whose window would run past the sūrah"
         )
+    if snapped:
+        print(f"  realigned: {snapped} position(s) the list marked a word or so off")
     official_total = sum(p[8] for p in phrase_rows)
     added = len(position_rows) - official_total
     print(f"  official positions: {official_total:,}")

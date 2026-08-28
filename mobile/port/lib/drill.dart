@@ -177,8 +177,8 @@ List<DrillCandidate> drillPool(CommonDatabase db, {int? limit}) {
 /// [drillPool], and both are worth failing loudly on rather than guessing.
 DrillQuestion drillQuestion(CommonDatabase db, int phraseId, int posId) {
   final forkRows = db.select(
-    'SELECT f.shape, f.position_count, f.road_ar, p.text_ar AS phrase_ar '
-    'FROM forks f JOIN official_phrases p ON p.phrase_id = f.phrase_id '
+    'SELECT f.shape, f.position_count, f.shared_after '
+    'FROM forks f '
     'WHERE f.phrase_id = ?',
     [phraseId],
   );
@@ -198,6 +198,7 @@ DrillQuestion drillQuestion(CommonDatabase db, int phraseId, int posId) {
 
   final posRows = db.select(
     'SELECT o.pos_id, o.verse_key, o.surah, o.page, o.start_word_id, '
+    '       o.end_word_id, '
     '       s.name_ar, '
     '       g.kind, g.cue_ar, g.cue_window, g.continuation_ar, '
     '       g.continuation_unique, g.strength, g.text_ar, g.evidence '
@@ -260,9 +261,18 @@ DrillQuestion drillQuestion(CommonDatabase db, int phraseId, int posId) {
   ).map((r) => r['pos_id'] as int).toList();
   final ordinal = siblings.indexOf(posId) + 1;
 
-  final road = fork['road_ar'] as String;
-  final phrase = fork['phrase_ar'] as String;
-  final tail = String.fromCharCodes(road.runes.skip(phrase.runes.length)).trim();
+  // The road is read from THIS position's own words, not from the phrase's
+  // curated text. That text is one string per fork, taken from whichever āyah
+  // the list cites; the positions it gathers are alike, not identical. 191 of
+  // them open with a wāw the cited āyah has not, or want one it has, and 1,102
+  // differ in wording somewhere. Printed as the road, the cited text puts words
+  // in an āyah that does not say them -- and this screen is asking the reciter
+  // to recite that āyah.
+  final end = pos['end_word_id'] as int;
+  final shared = fork['shared_after'] as int;
+  final phrase = words.text(start, end).join(' ');
+  final tail = words.text(end + 1, end + shared).join(' ').trim();
+  final road = tail.isEmpty ? phrase : '$phrase $tail';
 
   return DrillQuestion(
     phraseId: phraseId,

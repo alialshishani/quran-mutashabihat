@@ -94,6 +94,36 @@ void main() {
     }
   });
 
+  test('the road is the wording of the ayah it stands in', () {
+    // The curated phrase text is one string per fork, taken from whichever ayah
+    // the list cites, and the positions it gathers are alike rather than
+    // identical: 191 of them open with a waw the cited ayah has not, or want
+    // one it has. Printed as the road, that text asks a reciter to recite words
+    // their ayah does not say. The road must come from the position's own
+    // words, so it is checked against them here for the whole pool.
+    for (final c in pool) {
+      final q = drillQuestion(db, c.phraseId, c.posId);
+      final bounds = db.select(
+        'SELECT o.start_word_id, o.end_word_id, f.shared_after '
+        'FROM official_positions o JOIN forks f ON f.phrase_id = o.phrase_id '
+        'WHERE o.pos_id = ?',
+        [c.posId],
+      ).first;
+      final actual = db
+          .select(
+            'SELECT text_uthmani FROM words WHERE word_id BETWEEN ? AND ? '
+            'ORDER BY word_id',
+            [
+              bounds['start_word_id'],
+              (bounds['end_word_id'] as int) + (bounds['shared_after'] as int),
+            ],
+          )
+          .map((r) => r['text_uthmani'] as String)
+          .join(' ');
+      expect(q.roadAr, actual, reason: '${c.key} (${q.verseKey})');
+    }
+  });
+
   test('two positions in one surah with different answers never look alike', () {
     // The point of the lead-in and the ordinal. 491 forks have a single surah
     // taking two or more ways out, so naming the surah does not settle those and

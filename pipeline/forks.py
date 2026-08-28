@@ -14,10 +14,10 @@ turns each official mutashābih phrase into that shape.
   signpost        the cue from `pipeline.pegs`: what told you which fork you
                   were at, before you had to choose
 
-The shapes are counted, not assumed. Of the 809 phrases, 731 fork on the very
-next word and the rest run on together for up to nine more; 457 fork exactly two
-ways, and in 448 a single position leaves the road the others take — the shape
-that carries the most for the least memorising.
+The shapes are counted, not assumed. Of the 809 phrases, 726 fork on the very
+next word and the rest run on together for up to twelve more; 473 fork exactly
+two ways, and in 467 a single position leaves the road the others take — the
+shape that carries the most for the least memorising.
 """
 from __future__ import annotations
 

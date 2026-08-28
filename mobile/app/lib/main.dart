@@ -124,11 +124,12 @@ class _LoaderState extends State<Loader> {
 }
 
 
-/// Three peers, not one screen with the rest hidden behind an icon.
+/// Four peers, not one screen with the rest hidden behind an icon.
 ///
-/// The muṣḥaf keeps the whole screen while reading -- the bar goes with the
-/// rest of the chrome on a tap -- but it is a destination beside the forks and
-/// the drill rather than the only way in. Vertical chrome is free here: the
+/// The muṣḥaf keeps the whole screen while reading -- the bar is swiped up
+/// with the rest of the chrome -- but it is a destination beside recall, the
+/// forks and the drill rather than the only way in. Vertical chrome is free
+/// here: the
 /// type is set at `width / em`, so a bar at the bottom costs no letter size,
 /// unlike a margin at the side.
 class HomeShell extends StatefulWidget {
@@ -143,6 +144,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   final GlobalKey<MushafViewState> _mushaf = GlobalKey<MushafViewState>();
+  final GlobalKey<MushafViewState> _recall = GlobalKey<MushafViewState>();
   int _tab = 0;
   bool _chrome = false;
 
@@ -172,49 +174,99 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     // On the muṣḥaf the bar comes and goes with the rest of the chrome; on the
     // other two it is always there, because those are ordinary screens.
-    final showBar = _tab != 0 || _chrome;
+    // The muṣḥaf and recall are the same sheet, read two ways, so both keep
+    // the whole screen and both float their bar. The forks and the drill are
+    // ordinary screens and take an ordinary bar under them.
+    final onSheet = _tab == 0 || _tab == 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFCFCFA),
-      body: IndexedStack(
-        index: _tab,
+      // Over the muṣḥaf the bar is laid on the page, not under it. Given a
+      // strip of the Scaffold it would take that height from the block, and
+      // the block sets the leading -- so the whole page would re-set itself
+      // every time the chrome came and went. Floated, the sheet never moves.
+      body: Stack(
         children: [
-          MushafView(
-            key: _mushaf,
-            db: widget.db,
-            library: widget.library,
-            chrome: _chrome,
-            onToggleChrome: () => setState(() => _chrome = !_chrome),
-            onOpenIndex: _openIndex,
+          IndexedStack(
+            index: _tab,
+            children: [
+              MushafView(
+                key: _mushaf,
+                db: widget.db,
+                library: widget.library,
+                chrome: _chrome,
+                onToggleChrome: () => setState(() => _chrome = !_chrome),
+                onOpenIndex: _openIndex,
+                active: _tab == 0,
+              ),
+              MushafView(
+                key: _recall,
+                db: widget.db,
+                library: widget.library,
+                chrome: _chrome,
+                onToggleChrome: () => setState(() => _chrome = !_chrome),
+                onOpenIndex: _openIndex,
+                active: _tab == 1,
+                recall: true,
+              ),
+              ForksScreen(db: widget.db, onGo: _jump),
+              DrillScreen(db: widget.db, onGo: _jump),
+            ],
           ),
-          ForksScreen(db: widget.db, onGo: _jump),
-          DrillScreen(db: widget.db, onGo: _jump),
+          if (onSheet && _chrome)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _bar(floating: true),
+            ),
         ],
       ),
-      bottomNavigationBar: showBar
-          ? NavigationBar(
-              height: 62,
-              selectedIndex: _tab,
-              onDestinationSelected: (i) => setState(() => _tab = i),
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.menu_book_outlined),
-                  selectedIcon: Icon(Icons.menu_book),
-                  label: 'Muṣḥaf',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.call_split_outlined),
-                  selectedIcon: Icon(Icons.call_split),
-                  label: 'Forks',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.school_outlined),
-                  selectedIcon: Icon(Icons.school),
-                  label: 'Drill',
-                ),
-              ],
-            )
-          : null,
+      bottomNavigationBar: onSheet ? null : _bar(floating: false),
+    );
+  }
+
+  /// The three destinations. Floating over the muṣḥaf it is translucent and
+  /// shadowed, like the controls at the head of the page, so the line beneath
+  /// it is dimmed rather than lost; on the other two screens it is the
+  /// ordinary opaque bar at the foot of the Scaffold.
+  Widget _bar({required bool floating}) {
+    final bar = NavigationBar(
+      height: 62,
+      backgroundColor:
+          floating ? Colors.white.withValues(alpha: 0.96) : null,
+      selectedIndex: _tab,
+      onDestinationSelected: (i) => setState(() => _tab = i),
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.menu_book_outlined),
+          selectedIcon: Icon(Icons.menu_book),
+          label: 'Muṣḥaf',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.visibility_off_outlined),
+          selectedIcon: Icon(Icons.visibility_off),
+          label: 'Recall',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.call_split_outlined),
+          selectedIcon: Icon(Icons.call_split),
+          label: 'Forks',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.school_outlined),
+          selectedIcon: Icon(Icons.school),
+          label: 'Drill',
+        ),
+      ],
+    );
+
+    if (!floating) return bar;
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 12)],
+      ),
+      child: bar,
     );
   }
 }
@@ -247,6 +299,8 @@ class MushafView extends StatefulWidget {
     required this.chrome,
     required this.onToggleChrome,
     required this.onOpenIndex,
+    required this.active,
+    this.recall = false,
   });
 
   final CommonDatabase db;
@@ -255,13 +309,26 @@ class MushafView extends StatefulWidget {
   final VoidCallback onToggleChrome;
   final VoidCallback onOpenIndex;
 
+  /// Whether this is the sheet on screen. Both sheets are built at once -- the
+  /// shell keeps them in an IndexedStack so a tab change is not a page load --
+  /// and only the one being looked at may hold the keyboard.
+  final bool active;
+
+  /// Recall: the same sheet with its ink held back. The page is set exactly as
+  /// it is printed -- same measure, same size, same line breaks -- and then the
+  /// words are withheld one ayah at a time. What a reciter is recalling is a
+  /// place on a page, so the page has to keep its shape while it is covered.
+  final bool recall;
+
   @override
   MushafViewState createState() => MushafViewState();
 }
 
 class MushafViewState extends State<MushafView> {
   final Map<String, TapGestureRecognizer> _recognizers = {};
-  final Set<int> _fontsLoaded = {};
+  // A FontLoader registers its family with the engine, which is process-wide,
+  // so two views of the same page share one registration.
+  static final Set<int> _fontsLoaded = {};
   final FocusNode _focus = FocusNode();
 
 
@@ -274,6 +341,9 @@ class MushafViewState extends State<MushafView> {
   Map<String, Object?>? _doc;
   double? _em;
   String? _selected;
+
+  /// In recall, the ayat on this page whose ink has been let through.
+  final Set<String> _revealed = {};
 
   @override
   void initState() {
@@ -339,6 +409,9 @@ class MushafViewState extends State<MushafView> {
       _em = null;
       _selected = null;
       _recognizers.clear();
+      // A page arrives covered. Turning to it is the point at which a reciter
+      // has nothing yet.
+      _revealed.clear();
     });
     unawaited(widget.library.setLastPage(page));
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
@@ -415,20 +488,36 @@ class MushafViewState extends State<MushafView> {
       body: doc == null
           ? const Center(child: CircularProgressIndicator())
           : KeyboardListener(
-              focusNode: _focus..requestFocus(),
+              focusNode: widget.active ? (_focus..requestFocus()) : _focus,
               onKeyEvent: (e) {
                 if (e is! KeyDownEvent) return;
                 if (e.logicalKey == LogicalKeyboardKey.arrowLeft) _go(_page + 1);
                 if (e.logicalKey == LogicalKeyboardKey.arrowRight) _go(_page - 1);
+                if (widget.recall && e.logicalKey == LogicalKeyboardKey.space) {
+                  _revealNext();
+                }
               },
               child: Stack(
                 children: [
-                  // Tapping anywhere that is not a word shows or hides the
-                  // controls, so the muṣḥaf can hold the whole screen.
+                  // The chrome rides the vertical axis, which nothing else
+                  // on this screen claims: every word carries its own tap
+                  // recognizer and the sheet is turned horizontally, so a tap
+                  // here would have to win an arena it loses most of the time.
+                  // A drag takes the pointer the moment it passes slop.
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onTap: widget.onToggleChrome,
+                      // In recall a tap anywhere lets the next ayah through.
+                      // On the muṣḥaf the tap belongs to the words, which open
+                      // the panel, so the sheet does not take it.
+                      onTap: widget.recall ? _revealNext : null,
+                      // Swiped up like a blind: the bar comes from the foot of
+                      // the screen, so it is drawn up and pushed back down.
+                      onVerticalDragEnd: (d) {
+                        final v = d.primaryVelocity ?? 0;
+                        if (v.abs() < 120) return;
+                        if ((v < 0) != widget.chrome) widget.onToggleChrome();
+                      },
                       // Dragged like a paper page: pulling the sheet to the
                       // right brings the next page over, as it does in the
                       // muṣḥaf, so a rightward swipe advances.
@@ -592,6 +681,34 @@ class MushafViewState extends State<MushafView> {
                   const SizedBox(width: 10),
                 ],
               ),
+              // In recall the card also says how much of the page is still
+              // held back, and offers the two ways out of a run: give up and
+              // read it, or cover it again and take the page from the top.
+              if (widget.recall)
+                Row(
+                  children: [
+                    const SizedBox(width: 12),
+                    Text(
+                      '${_revealed.length} of ${_ayahKeys.length} revealed',
+                      style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                          color: _inkMute),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: _revealed.length >= _ayahKeys.length
+                          ? null
+                          : _revealAll,
+                      child: const Text('Show all'),
+                    ),
+                    TextButton(
+                      onPressed: _revealed.isEmpty ? null : _hideAll,
+                      child: const Text('Cover again'),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ),
             ],
           ),
         ),
@@ -615,6 +732,33 @@ class MushafViewState extends State<MushafView> {
     ));
     if (mounted) setState(() {});
   }
+
+  /// The page's ayat, in the order the page reads them.
+  List<String> get _ayahKeys => ((_doc?['ayat'] as List?) ?? const [])
+      .cast<Map<String, Object?>>()
+      .map((a) => a['verse_key'] as String)
+      .toList();
+
+  /// Let the next ayah through, in the order the page reads them. Selecting it
+  /// as well means the head of the card names what was just uncovered, and the
+  /// bookmark applies to it.
+  void _revealNext() {
+    for (final key in _ayahKeys) {
+      if (_revealed.contains(key)) continue;
+      setState(() {
+        _revealed.add(key);
+        _selected = key;
+      });
+      return;
+    }
+  }
+
+  void _revealAll() => setState(() => _revealed.addAll(_ayahKeys));
+
+  void _hideAll() => setState(() {
+        _revealed.clear();
+        _selected = null;
+      });
 
   Widget _buildBlock(BuildContext context, BoxConstraints c) {
     // The whole of the typesetting: one size, from the measure, per page.
@@ -718,10 +862,23 @@ class MushafViewState extends State<MushafView> {
 
   /// One span per token, so the hairline and the tap target are both per word.
   InlineSpan _span(Tok t, String key, double size) {
-    final recognizer = _recognizers.putIfAbsent(
-      key,
-      () => TapGestureRecognizer()..onTap = () => _openPanel(t.verseKey),
-    );
+    // In recall the sheet is the tap target and no word carries a recognizer of
+    // its own. That is not economy: on a page set edge to edge, a per-word tap
+    // takes the arena from the sheet's nearly every time.
+    final recognizer = widget.recall
+        ? null
+        : _recognizers.putIfAbsent(
+            key,
+            () => TapGestureRecognizer()..onTap = () => _openPanel(t.verseKey),
+          );
+
+    // Withheld, not removed. The glyphs are still set, still measured, still in
+    // their place on the line; only the ink is kept back. Taking the words out
+    // would re-set the page, and where a phrase falls on the page is half of
+    // what a reciter holds. The ayah numbers stay lit, so the page keeps its
+    // skeleton and you can see how much is still to come.
+    final hidden =
+        widget.recall && !t.isMarker && !_revealed.contains(t.verseKey);
 
     return TextSpan(
       text: t.code,
@@ -731,12 +888,21 @@ class MushafViewState extends State<MushafView> {
         // The stylesheet's .qline line-height. The glyphs ask for 1.531em, so
         // they overflow their line box by design and must not be clipped.
         height: kLineHeight,
-        color: t.isMarker ? const Color(0xFF8A6C22) : const Color(0xFF191C19),
-        decoration: t.marked ? TextDecoration.underline : TextDecoration.none,
+        color: hidden
+            ? Colors.transparent
+            : (t.isMarker
+                ? const Color(0xFF8A6C22)
+                : const Color(0xFF191C19)),
+        // The underline marks a mutashabih phrase. Drawn under covered words it
+        // would point straight at the thing being recalled, so it waits.
+        decoration: t.marked && !hidden
+            ? TextDecoration.underline
+            : TextDecoration.none,
         decorationColor: const Color(0xFFD8A93C),
         decorationThickness: 0.6,
-        backgroundColor:
-            _selected == t.verseKey ? const Color(0x33D8A93C) : null,
+        backgroundColor: hidden
+            ? const Color(0x0F191C19)
+            : (_selected == t.verseKey ? const Color(0x33D8A93C) : null),
       ),
       recognizer: recognizer,
     );
