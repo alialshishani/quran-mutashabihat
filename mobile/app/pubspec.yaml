@@ -1,0 +1,40 @@
+name: qcf_spike
+description: The mushaf, page by page, off the real corpus, in Flutter.
+publish_to: none
+version: 0.2.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sqlite3: ^2.9.4
+  typed_data: ^1.4.0
+  # The native SQLite, for iOS and Android. Ignored by the web build, which uses
+  # the package's WASM build instead.
+  sqlite3_flutter_libs: ^0.5.26
+  path_provider: ^2.1.4
+  quran_port:
+    path: ../port
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  # No font is declared here on purpose. There are 604 of them, one per page,
+  # and each is loaded at runtime with FontLoader when its page is turned to.
+  assets:
+    - assets/app.db
+    - assets/fonts/
+
+  # The one font that IS declared. Surah headings and basmalah lines carry no
+  # glyph codes, so they are drawn rather than set, and the engine's own Arabic
+  # fallback is fetched over the network -- which an offline mushaf cannot rely
+  # on. Amiri is OFL, so unlike the KFGQPC page fonts it can simply be shipped.
+  fonts:
+    - family: Amiri
+      fonts:
+        - asset: assets/ui/Amiri-Regular.ttf

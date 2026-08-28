@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The ḍābiṭ is the peg that tells one wording from the other it is
+         confused with. It is what the app adds to the printed page. -->
+    <string name="app_name">Ḍābiṭ</string>
+</resources>

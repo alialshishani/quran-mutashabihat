@@ -1,0 +1,10 @@
+name: quran_port
+description: Dart port of app/lookup.py, verified against the Python API.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  sqlite3: ^2.4.0
