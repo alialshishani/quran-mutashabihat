@@ -8,6 +8,8 @@
 // Nothing here composes Qur'anic text. Every token, the basmalah included,
 // arrives from the database, as it does on the Python side.
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,7 +20,8 @@ import 'package:sqlite3/common.dart' show CommonDatabase;
 import 'corpus.dart';
 import 'drill_screen.dart';
 import 'forks_screen.dart';
-import 'navigate.dart';
+import 'index_screen.dart';
+import 'library.dart';
 import 'panel.dart';
 
 const int kFallbackPage = 89;
@@ -32,6 +35,10 @@ const String kDrawnFace = 'Amiri';
 /// measure, and so off the size of the letters -- 14 is about the least that
 /// still reads as a margin rather than a crop.
 const double kEdgeMargin = 14;
+
+const Color _ink = Color(0xFF191C19);
+const Color _inkMute = Color(0xFF767C74);
+const Color _gold = Color(0xFF8A6C22);
 
 /// The stylesheet's .qline line-height. The glyphs ask for 1.531em, so they
 /// overflow their line box by design and must not be clipped.
@@ -82,11 +89,17 @@ class Loader extends StatefulWidget {
 }
 
 class _LoaderState extends State<Loader> {
-  late final Future<CommonDatabase> _db = openCorpus();
+  late final Future<({CommonDatabase db, Library library})> _db = _open();
+
+  Future<({CommonDatabase db, Library library})> _open() async {
+    final db = await openCorpus();
+    final library = await Library.open();
+    return (db: db, library: library);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<CommonDatabase>(
+    return FutureBuilder<({CommonDatabase db, Library library})>(
       future: _db,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -104,8 +117,104 @@ class _LoaderState extends State<Loader> {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        return MushafView(db: snap.data!);
+        return HomeShell(db: snap.data!.db, library: snap.data!.library);
       },
+    );
+  }
+}
+
+
+/// Three peers, not one screen with the rest hidden behind an icon.
+///
+/// The muṣḥaf keeps the whole screen while reading -- the bar goes with the
+/// rest of the chrome on a tap -- but it is a destination beside the forks and
+/// the drill rather than the only way in. Vertical chrome is free here: the
+/// type is set at `width / em`, so a bar at the bottom costs no letter size,
+/// unlike a margin at the side.
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key, required this.db, required this.library});
+
+  final CommonDatabase db;
+  final Library library;
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  final GlobalKey<MushafViewState> _mushaf = GlobalKey<MushafViewState>();
+  int _tab = 0;
+  bool _chrome = false;
+
+  /// Turn the muṣḥaf to a page, from wherever the reader asked.
+  void _jump(int page, [String? verseKey]) {
+    setState(() => _tab = 0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mushaf.currentState?.goTo(page, verseKey);
+    });
+  }
+
+  void _openIndex() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => IndexScreen(
+        db: widget.db,
+        pages: pageCount(widget.db),
+        library: widget.library,
+        onGo: (page, [verseKey]) {
+          Navigator.of(context).pop();
+          _jump(page, verseKey);
+        },
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // On the muṣḥaf the bar comes and goes with the rest of the chrome; on the
+    // other two it is always there, because those are ordinary screens.
+    final showBar = _tab != 0 || _chrome;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFFCFCFA),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          MushafView(
+            key: _mushaf,
+            db: widget.db,
+            library: widget.library,
+            chrome: _chrome,
+            onToggleChrome: () => setState(() => _chrome = !_chrome),
+            onOpenIndex: _openIndex,
+          ),
+          ForksScreen(db: widget.db, onGo: _jump),
+          DrillScreen(db: widget.db, onGo: _jump),
+        ],
+      ),
+      bottomNavigationBar: showBar
+          ? NavigationBar(
+              height: 62,
+              selectedIndex: _tab,
+              onDestinationSelected: (i) => setState(() => _tab = i),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book_outlined),
+                  selectedIcon: Icon(Icons.menu_book),
+                  label: 'Muṣḥaf',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.call_split_outlined),
+                  selectedIcon: Icon(Icons.call_split),
+                  label: 'Forks',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.school_outlined),
+                  selectedIcon: Icon(Icons.school),
+                  label: 'Drill',
+                ),
+              ],
+            )
+          : null,
     );
   }
 }
@@ -131,21 +240,31 @@ class Tok {
 }
 
 class MushafView extends StatefulWidget {
-  const MushafView({super.key, required this.db});
+  const MushafView({
+    super.key,
+    required this.db,
+    required this.library,
+    required this.chrome,
+    required this.onToggleChrome,
+    required this.onOpenIndex,
+  });
 
   final CommonDatabase db;
+  final Library library;
+  final bool chrome;
+  final VoidCallback onToggleChrome;
+  final VoidCallback onOpenIndex;
 
   @override
-  State<MushafView> createState() => _MushafViewState();
+  MushafViewState createState() => MushafViewState();
 }
 
-class _MushafViewState extends State<MushafView> {
+class MushafViewState extends State<MushafView> {
   final Map<String, TapGestureRecognizer> _recognizers = {};
   final Set<int> _fontsLoaded = {};
   final FocusNode _focus = FocusNode();
 
 
-  bool _chrome = false;
   // A page turn is async -- it awaits the page's font -- so `_page` still holds
   // the old value while one is in flight. Without this guard a second turn
   // starting in that window computes its target from the stale page, and one
@@ -159,7 +278,19 @@ class _MushafViewState extends State<MushafView> {
   @override
   void initState() {
     super.initState();
+    // Where they left off, unless a #p= fragment asked for somewhere else.
+    final last = widget.library.lastPage;
+    if (last != null && initialPage == kFallbackPage) _page = last;
     _go(_page);
+  }
+
+  /// Turn to a page and select an āyah there. Called by the shell, so the forks
+  /// screen, the drill and the index can all send the reader to a place.
+  Future<void> goTo(int page, [String? verseKey]) async {
+    await _go(page);
+    if (mounted && verseKey != null) {
+      setState(() => _selected = verseKey);
+    }
   }
 
   @override
@@ -209,6 +340,7 @@ class _MushafViewState extends State<MushafView> {
       _selected = null;
       _recognizers.clear();
     });
+    unawaited(widget.library.setLastPage(page));
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
   }
 
@@ -275,31 +407,6 @@ class _MushafViewState extends State<MushafView> {
     });
   }
 
-  void _openNavigate() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => NavigateSheet(
-        db: widget.db,
-        pages: pageCount(widget.db),
-        onGo: _go,
-      ),
-    );
-  }
-
-  void _openForks() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ForksScreen(db: widget.db, onGo: _jump),
-    ));
-  }
-
-  void _openDrill() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => DrillScreen(db: widget.db, onGo: _jump),
-    ));
-  }
-
   @override
   Widget build(BuildContext context) {
     final doc = _doc;
@@ -321,7 +428,7 @@ class _MushafViewState extends State<MushafView> {
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onTap: () => setState(() => _chrome = !_chrome),
+                      onTap: widget.onToggleChrome,
                       // Dragged like a paper page: pulling the sheet to the
                       // right brings the next page over, as it does in the
                       // muṣḥaf, so a rightward swipe advances.
@@ -346,7 +453,7 @@ class _MushafViewState extends State<MushafView> {
                       ),
                     ),
                   ),
-                  if (_chrome) _controls(),
+                  if (widget.chrome) _controls(),
                 ],
               ),
             ),
@@ -382,7 +489,15 @@ class _MushafViewState extends State<MushafView> {
     );
   }
 
+  /// The chrome: where you are, a way to the index, a bookmark, and a slider
+  /// across all 604 pages. Everything that is not the page itself.
   Widget _controls() {
+    final doc = _doc;
+    final surahs = ((doc?['surahs'] as List?) ?? const [])
+        .cast<Map<String, Object?>>();
+    final juz = doc?['juz'];
+    final marked = _selected != null && widget.library.has(_selected!);
+
     return Positioned(
       left: 0,
       right: 0,
@@ -390,48 +505,92 @@ class _MushafViewState extends State<MushafView> {
       child: SafeArea(
         child: Container(
           margin: const EdgeInsets.all(8),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(10),
+            color: Colors.white.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(12),
             boxShadow: const [
               BoxShadow(color: Color(0x22000000), blurRadius: 12),
             ],
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                tooltip: 'Go to sūrah, juzʼ or page',
-                onPressed: _openNavigate,
-                icon: const Icon(Icons.menu_book_outlined),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Index, bookmarks and search',
+                    onPressed: widget.onOpenIndex,
+                    icon: const Icon(Icons.list),
+                  ),
+                  // Where you are, which the page itself cannot say.
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          surahs.isEmpty
+                              ? 'Page $_page'
+                              : surahs
+                                  .map((x) => x['name_ar'] as String)
+                                  .join('  ·  '),
+                          textDirection: TextDirection.rtl,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontFamily: 'Amiri', fontSize: 17, color: _ink),
+                        ),
+                        Text(
+                          'page $_page'
+                          '${juz == null ? "" : "   ·   juz $juz"}'
+                          '${_selected == null ? "" : "   ·   $_selected"}',
+                          style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                              color: _inkMute),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: _selected == null
+                        ? 'Select an āyah to bookmark it'
+                        : (marked ? 'Remove bookmark' : 'Bookmark this āyah'),
+                    onPressed: _selected == null ? null : _toggleBookmark,
+                    icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
+                    color: marked ? _gold : null,
+                  ),
+                ],
               ),
-              IconButton(
-                tooltip: 'Forks',
-                onPressed: _openForks,
-                icon: const Icon(Icons.call_split),
-              ),
-              IconButton(
-                tooltip: 'Drill',
-                onPressed: _openDrill,
-                icon: const Icon(Icons.school_outlined),
-              ),
-              // The muṣḥaf reads right to left, so the arrows do too.
-              IconButton(
-                tooltip: 'Next page',
-                onPressed: () => _go(_page + 1),
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(
-                child: Text(
-                  'Page $_page',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF4A5049)),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Previous page',
-                onPressed: () => _go(_page - 1),
-                icon: const Icon(Icons.chevron_right),
+              // The whole muṣḥaf under a thumb. The reference apps all have
+              // this, and 604 pages is far too many to reach by swiping.
+              Row(
+                children: [
+                  const SizedBox(width: 10),
+                  Text('1',
+                      style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 9,
+                          color: _inkMute)),
+                  Expanded(
+                    child: Slider(
+                      min: 1,
+                      max: pageCount(widget.db).toDouble(),
+                      value: _page
+                          .clamp(1, pageCount(widget.db))
+                          .toDouble(),
+                      // Only on release: turning a page loads its font, and
+                      // dragging would load one per pixel.
+                      onChanged: (v) => setState(() => _page = v.round()),
+                      onChangeEnd: (v) => _go(v.round()),
+                    ),
+                  ),
+                  Text('${pageCount(widget.db)}',
+                      style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 9,
+                          color: _inkMute)),
+                  const SizedBox(width: 10),
+                ],
               ),
             ],
           ),
@@ -440,7 +599,25 @@ class _MushafViewState extends State<MushafView> {
     );
   }
 
+  Future<void> _toggleBookmark() async {
+    final key = _selected;
+    final doc = _doc;
+    if (key == null || doc == null) return;
+    final ayat = (doc['ayat'] as List).cast<Map<String, Object?>>();
+    final match = ayat.where((a) => a['verse_key'] == key);
+    await widget.library.toggle(Bookmark(
+      verseKey: key,
+      page: _page,
+      surahNameAr: match.isEmpty
+          ? ''
+          : match.first['surah_name_ar'] as String,
+      addedMs: DateTime.now().millisecondsSinceEpoch,
+    ));
+    if (mounted) setState(() {});
+  }
+
   Widget _buildBlock(BuildContext context, BoxConstraints c) {
+    // The whole of the typesetting: one size, from the measure, per page.
     final size = c.maxWidth / _em!;
     final lines = (_doc!['lines'] as List).cast<Map<String, Object?>>();
     return Column(

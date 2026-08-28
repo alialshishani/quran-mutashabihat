@@ -22,6 +22,7 @@ shipped inside the APK and copied out on first launch.
 | `port/lib/lookup.dart` | `lookup` — the above plus pass A's detected repeats and their ḍawābiṭ |
 | `port/lib/forks.dart` | `fork_index`, `fork_detail` — the mutashābihāt as forks |
 | `port/lib/drill.dart` | the drill. **Not a port** — see below |
+| `port/lib/search.dart` | finding an āyah by its wording. Not a port either |
 | `app/lib/` | the Flutter app |
 | `tools/` | what builds the assets, and what dumps the goldens |
 
@@ -91,6 +92,34 @@ cd mobile/port && dart run bin/drill_audit.dart ../../data/quran.db
 | ambiguous only across sūrahs | 49 — the question names the sūrah, so answerable |
 | no run-up at all | 4 — all of them open a sūrah |
 
+## Getting around
+
+Three peers in a bottom bar — muṣḥaf, forks, drill — rather than one screen
+with the rest behind an unlabelled icon. The bar goes with the rest of the
+chrome on a tap, so the page still holds the whole screen while reading.
+
+Vertical chrome is free here, which is why a bar is affordable: the type is set
+at `width / em`, so a bar at the bottom costs no letter size. A margin at the
+side does — 14dp each way is about 7% off the letters.
+
+The index is a screen rather than a sheet: sūrah, juz', bookmarks, a page field,
+and a search across the whole text. The muṣḥaf's own chrome carries where you
+are (sūrah · page · juz'), a bookmark for the selected āyah, and a slider across
+all 604 pages — a swipe is no way to cross a muṣḥaf. The page you were last on
+is where it opens.
+
+### Search matches what you type, not what is printed
+
+The Uthmānī rasm writes a hamza on a tatweel seat, so `words.text_norm` for
+شَيْـًۭٔا is شئا — and a reader typing شيئا would never find it. So the search
+index is built from `text_imlaei`, the modern spelling, and normalized by
+`pipeline.normalize` itself at staging time (`search_ayat`). The app only has to
+normalize the query.
+
+`bin/verify_normalize.dart` holds the two to the same rules: normalizing every
+āyah's imlaei text in Dart reproduces the Python's key for **6,236 of 6,236**.
+Dart has no Unicode NFC, so this is not free — it is measured.
+
 ## What the port found in the Python
 
 Four things, all in the SQL, so all of them are worth the same to `app/`:
@@ -159,9 +188,10 @@ Amiri, the one font this repository does vendor into a build, is OFL.
    cannot be updated over. Both want fixing before this leaves the bench.
 2. **The drill asks about official phrases only.** Pass A's own detected
    repeats have ḍawābiṭ too and are not drilled.
-3. **`lookup` runs on the UI thread.** Fast in practice, but a phrase with 90
+3. **Sūrah rows jump to a sūrah's first page**, not to an āyah.
+4. **`lookup` runs on the UI thread.** Fast in practice, but a phrase with 90
    positions loads a lot of āyah text; an isolate is the fix if a tap ever drags.
-4. **No dark mode.** `app/mushaf_page.py` carries a full dark palette and the
+5. **No dark mode.** `app/mushaf_page.py` carries a full dark palette and the
    app ignores it.
 5. **The page opens at 89 every time.** It should remember where you were.
 6. **iOS is untouched** — the Dart is platform-agnostic and `corpus_native.dart`
