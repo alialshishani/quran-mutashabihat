@@ -42,12 +42,21 @@ const Map<String, ({String label, String gloss, Color tint})> kShapeInfo = {
 };
 
 class ForksScreen extends StatefulWidget {
-  const ForksScreen({super.key, required this.db, required this.onGo});
+  const ForksScreen({
+    super.key,
+    required this.db,
+    required this.onGo,
+    required this.onOpenMenu,
+  });
 
   final CommonDatabase db;
 
   /// Turn the muṣḥaf to this page and select this āyah.
   final void Function(int page, String verseKey) onGo;
+
+  /// The same drawer the sheet opens, so the lists, the search and the
+  /// settings reach every screen and not only the muṣḥaf.
+  final VoidCallback onOpenMenu;
 
   @override
   State<ForksScreen> createState() => _ForksScreenState();
@@ -90,6 +99,11 @@ class _ForksScreenState extends State<ForksScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFFCFCFA),
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Menu',
+          onPressed: widget.onOpenMenu,
+          icon: const Icon(Icons.menu),
+        ),
         title: const Text('Forks'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(84),

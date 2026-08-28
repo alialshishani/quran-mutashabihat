@@ -26,10 +26,19 @@ const Color _goldSoft = Color(0xFFFBEFD2);
 const Color _wrongTint = Color(0xFF8C3B2E);
 
 class DrillScreen extends StatefulWidget {
-  const DrillScreen({super.key, required this.db, required this.onGo});
+  const DrillScreen({
+    super.key,
+    required this.db,
+    required this.onGo,
+    required this.onOpenMenu,
+  });
 
   final CommonDatabase db;
   final void Function(int page, String verseKey) onGo;
+
+  /// The same drawer the sheet opens, so the lists, the search and the
+  /// settings reach every screen and not only the muṣḥaf.
+  final VoidCallback onOpenMenu;
 
   @override
   State<DrillScreen> createState() => _DrillScreenState();
@@ -111,6 +120,11 @@ class _DrillScreenState extends State<DrillScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFFCFCFA),
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Menu',
+          onPressed: widget.onOpenMenu,
+          icon: const Icon(Icons.menu),
+        ),
         title: const Text('Drill'),
         actions: [
           if (progress != null && _pool.isNotEmpty)

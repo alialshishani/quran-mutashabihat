@@ -72,6 +72,7 @@ class Library {
   static const String _lastPageKey = 'read.lastPage.v1';
   static const String _bookmarksKey = 'read.bookmarks.v1';
   static const String _missedKey = 'recall.missed.v1';
+  static const String _forkStopsKey = 'recall.stopAtForks.v1';
 
   final SharedPreferences _prefs;
   final List<Bookmark> _bookmarks;
@@ -104,6 +105,13 @@ class Library {
     }
     return Library._(prefs, marks, missed);
   }
+
+  /// Whether recall stops where a shared road turns, as well as at the end of
+  /// every ayah. On by default: the turning is the thing worth being asked,
+  /// and a reciter who wants the plain cover can say so once.
+  bool get stopAtForks => _prefs.getBool(_forkStopsKey) ?? true;
+
+  Future<void> setStopAtForks(bool on) => _prefs.setBool(_forkStopsKey, on);
 
   /// The page last read, or null the first time the app is opened.
   int? get lastPage => _prefs.getInt(_lastPageKey);

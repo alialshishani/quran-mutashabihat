@@ -144,10 +144,12 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  final GlobalKey<ScaffoldState> _scaffold = GlobalKey<ScaffoldState>();
   final GlobalKey<MushafViewState> _mushaf = GlobalKey<MushafViewState>();
   final GlobalKey<MushafViewState> _recall = GlobalKey<MushafViewState>();
   int _tab = 0;
   bool _chrome = false;
+  late bool _stopAtForks = widget.library.stopAtForks;
 
   /// Turn the muṣḥaf to a page, from wherever the reader asked.
   void _jump(int page, [String? verseKey]) {
@@ -171,6 +173,13 @@ class _HomeShellState extends State<HomeShell> {
     if (to == null || page == null) return;
     WidgetsBinding.instance
         .addPostFrameCallback((_) => to.currentState?.goTo(page));
+  }
+
+  void _openMenu() => _scaffold.currentState?.openDrawer();
+
+  Future<void> _setStopAtForks(bool on) async {
+    setState(() => _stopAtForks = on);
+    await widget.library.setStopAtForks(on);
   }
 
   void _openIndex() {
@@ -197,7 +206,9 @@ class _HomeShellState extends State<HomeShell> {
     final onSheet = _tab == 0 || _tab == 1;
 
     return Scaffold(
+      key: _scaffold,
       backgroundColor: const Color(0xFFFCFCFA),
+      drawer: _menu(),
       // Over the muṣḥaf the bar is laid on the page, not under it. Given a
       // strip of the Scaffold it would take that height from the block, and
       // the block sets the leading -- so the whole page would re-set itself
@@ -213,7 +224,7 @@ class _HomeShellState extends State<HomeShell> {
                 library: widget.library,
                 chrome: _chrome,
                 onToggleChrome: () => setState(() => _chrome = !_chrome),
-                onOpenIndex: _openIndex,
+                onOpenMenu: _openMenu,
                 active: _tab == 0,
               ),
               MushafView(
@@ -222,12 +233,15 @@ class _HomeShellState extends State<HomeShell> {
                 library: widget.library,
                 chrome: _chrome,
                 onToggleChrome: () => setState(() => _chrome = !_chrome),
-                onOpenIndex: _openIndex,
+                onOpenMenu: _openMenu,
                 active: _tab == 1,
+                stopAtForks: _stopAtForks,
                 recall: true,
               ),
-              ForksScreen(db: widget.db, onGo: _jump),
-              DrillScreen(db: widget.db, onGo: _jump),
+              ForksScreen(
+                  db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
+              DrillScreen(
+                  db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
             ],
           ),
           if (onSheet && _chrome)
@@ -243,7 +257,71 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  /// The three destinations. Floating over the muṣḥaf it is translucent and
+  /// Everything that is not a destination: the lists, the search, and what
+  /// little there is to set. It lives behind one button so the page keeps the
+  /// screen, and so a setting has somewhere to go that is not the page.
+  Widget _menu() {
+    final page = _sheet(_tab)?.currentState?.page;
+    return Drawer(
+      backgroundColor: const Color(0xFFFCFCFA),
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Muṣḥaf',
+                      style: TextStyle(
+                          fontFamily: 'Amiri', fontSize: 26, color: _ink)),
+                  const SizedBox(height: 2),
+                  Text(
+                    page == null ? 'mutashābihāt' : 'page $page of 604',
+                    style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: _inkMute),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.list),
+              title: const Text('Index and search'),
+              subtitle: const Text("Sūrah, juzʾ, marked, missed"),
+              onTap: () {
+                Navigator.of(context).pop();
+                _openIndex();
+              },
+            ),
+            const Divider(height: 1),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
+              child: Text('RECALL',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      letterSpacing: 1.2,
+                      color: _inkMute)),
+            ),
+            SwitchListTile(
+              value: _stopAtForks,
+              onChanged: _setStopAtForks,
+              title: const Text('Stop at forks'),
+              subtitle: const Text(
+                  'Hold back the word a shared road turns on, instead of '
+                  'covering the āyah whole.'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The four destinations. Floating over the muṣḥaf it is translucent and
   /// shadowed, like the controls at the head of the page, so the line beneath
   /// it is dimmed rather than lost; on the other two screens it is the
   /// ordinary opaque bar at the foot of the Scaffold.
@@ -315,8 +393,9 @@ class MushafView extends StatefulWidget {
     required this.library,
     required this.chrome,
     required this.onToggleChrome,
-    required this.onOpenIndex,
+    required this.onOpenMenu,
     required this.active,
+    this.stopAtForks = true,
     this.recall = false,
   });
 
@@ -324,7 +403,13 @@ class MushafView extends StatefulWidget {
   final Library library;
   final bool chrome;
   final VoidCallback onToggleChrome;
-  final VoidCallback onOpenIndex;
+  /// The way to everything that is not the page: the lists, the search and the
+  /// settings. One button, one drawer, rather than a row of icons over the
+  /// muṣḥaf -- vertical chrome is free here, but attention is not.
+  final VoidCallback onOpenMenu;
+
+  /// Whether recall also stops where a shared road turns. See [_cut].
+  final bool stopAtForks;
 
   /// Whether this is the sheet on screen. Both sheets are built at once -- the
   /// shell keeps them in an IndexedStack so a tab change is not a page load --
@@ -386,6 +471,16 @@ class MushafViewState extends State<MushafView> {
     if (page != _page) await _go(page);
     if (mounted && verseKey != null) {
       setState(() => _selected = verseKey);
+    }
+  }
+
+  @override
+  void didUpdateWidget(MushafView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The cut is made from the setting, so a page half-lit under the old one
+    // is covered again under the new.
+    if (widget.recall && widget.stopAtForks != oldWidget.stopAtForks) {
+      setState(_cut);
     }
   }
 
@@ -638,9 +733,9 @@ class MushafViewState extends State<MushafView> {
               Row(
                 children: [
                   IconButton(
-                    tooltip: 'Index, bookmarks and search',
-                    onPressed: widget.onOpenIndex,
-                    icon: const Icon(Icons.list),
+                    tooltip: 'Menu',
+                    onPressed: widget.onOpenMenu,
+                    icon: const Icon(Icons.menu),
                   ),
                   // Where you are, which the page itself cannot say.
                   Expanded(
@@ -680,37 +775,11 @@ class MushafViewState extends State<MushafView> {
                   ),
                 ],
               ),
-              // The whole muṣḥaf under a thumb. The reference apps all have
-              // this, and 604 pages is far too many to reach by swiping.
-              Row(
-                children: [
-                  const SizedBox(width: 10),
-                  Text('1',
-                      style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          color: _inkMute)),
-                  Expanded(
-                    child: Slider(
-                      min: 1,
-                      max: pageCount(widget.db).toDouble(),
-                      value: _page
-                          .clamp(1, pageCount(widget.db))
-                          .toDouble(),
-                      // Only on release: turning a page loads its font, and
-                      // dragging would load one per pixel.
-                      onChanged: (v) => setState(() => _page = v.round()),
-                      onChangeEnd: (v) => _go(v.round()),
-                    ),
-                  ),
-                  Text('${pageCount(widget.db)}',
-                      style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          color: _inkMute)),
-                  const SizedBox(width: 10),
-                ],
-              ),
+              // The slider that used to sit here is gone. It spanned 604
+              // pages in a thumb's width -- a page either side of the one you
+              // wanted, every time -- and the index has a page field that
+              // lands on the page you asked for. Two ways to do one thing, and
+              // this was the worse one.
               // In recall the card also says how much of the page is still
               // held back, and offers the two ways out of a run: give up and
               // read it, or cover it again and take the page from the top.
@@ -814,10 +883,11 @@ class MushafViewState extends State<MushafView> {
     final ids = keyOf.keys.toList()..sort();
     final stops = <int>{
       ...lastOfAyah.values,
-      for (final end in roadEnds(widget.db, ids.first, ids.last))
-        // Only where the road ends inside this page and the ayah runs on past
-        // it. A road that ends where its ayah does asks nothing.
-        if (keyOf.containsKey(end) && lastOfAyah[keyOf[end]] != end) end,
+      if (widget.stopAtForks)
+        for (final end in roadEnds(widget.db, ids.first, ids.last))
+          // Only where the road ends inside this page and the ayah runs on
+          // past it. A road ending where its ayah does asks nothing.
+          if (keyOf.containsKey(end) && lastOfAyah[keyOf[end]] != end) end,
     };
     _keyOf = keyOf;
     _stops = stops.toList()..sort();
