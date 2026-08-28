@@ -1001,13 +1001,29 @@ class MushafViewState extends State<MushafView> {
     if (keyOf.isEmpty) return;
 
     final ids = keyOf.keys.toList()..sort();
+
+    // One turning per ayah, and the hardest one. An ayah can sit on five shared
+    // roads and be at risk on one of them; stopping at all five asks four
+    // questions whose answer is the habit the reciter already has. `danger` is
+    // how far this place stands from the crowd it shares the road with -- see
+    // Stand in the port.
+    final best = <String, ({int at, double danger})>{};
+    if (widget.stopAtForks) {
+      roadEnds(widget.db, ids.first, ids.last).forEach((end, danger) {
+        final key = keyOf[end];
+        // Only where the road ends inside this page and the ayah runs on past
+        // it. A road ending where its ayah does asks nothing.
+        if (key == null || lastOfAyah[key] == end) return;
+        final held = best[key];
+        if (held == null || danger > held.danger) {
+          best[key] = (at: end, danger: danger);
+        }
+      });
+    }
+
     final stops = <int>{
       ...lastOfAyah.values,
-      if (widget.stopAtForks)
-        for (final end in roadEnds(widget.db, ids.first, ids.last))
-          // Only where the road ends inside this page and the ayah runs on
-          // past it. A road ending where its ayah does asks nothing.
-          if (keyOf.containsKey(end) && lastOfAyah[keyOf[end]] != end) end,
+      for (final turn in best.values) turn.at,
     };
     _keyOf = keyOf;
     _stops = stops.toList()..sort();

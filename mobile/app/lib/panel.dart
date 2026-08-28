@@ -106,7 +106,35 @@ class MutashabihatPanel extends StatelessWidget {
                   style: TextStyle(fontSize: 13, color: _inkSoft, height: 1.5),
                 ),
               ),
-            for (final m in matches) _Phrase(match: m, onJump: onJump),
+            // One leads. An ayah can carry five curated phrases and be at
+            // risk from one of them -- the one where this place stands apart
+            // from the crowd it shares a road with. The rest are reference, and
+            // reference belongs behind a disclosure, not in front of a reciter
+            // who wants to know what they are about to get wrong.
+            if (matches.isNotEmpty)
+              _Phrase(match: matches.first, onJump: onJump, lead: true),
+            if (matches.length > 1)
+              Theme(
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text(
+                    '${matches.length - 1} more '
+                    '${matches.length == 2 ? "phrase" : "phrases"} here',
+                    style: TextStyle(fontSize: 13, color: _accent),
+                  ),
+                  subtitle: Text(
+                    'the rest of the shared wording this āyah carries, '
+                    'ranked by how far it stands from its crowd',
+                    style: TextStyle(fontSize: 11, color: _inkMute),
+                  ),
+                  children: [
+                    for (final m in matches.skip(1))
+                      _Phrase(match: m, onJump: onJump),
+                  ],
+                ),
+              ),
             if (detected.isNotEmpty)
               Theme(
                 data: Theme.of(context)
@@ -136,15 +164,20 @@ class MutashabihatPanel extends StatelessWidget {
 }
 
 class _Phrase extends StatelessWidget {
-  const _Phrase({required this.match, required this.onJump});
+  const _Phrase({required this.match, required this.onJump, this.lead = false});
 
   final Map<String, Object?> match;
   final void Function(int page, String verseKey) onJump;
+
+  /// The one this āyah is actually at risk from, shown open and first.
+  final bool lead;
 
   @override
   Widget build(BuildContext context) {
     final here = (match['here'] as List).cast<Map<String, Object?>>();
     final elsewhere = (match['elsewhere'] as List).cast<Map<String, Object?>>();
+    final fork =
+        here.isEmpty ? null : here.first['fork'] as Map<String, Object?>?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 18),
@@ -172,24 +205,146 @@ class _Phrase extends StatelessWidget {
             style: TextStyle(
                 fontFamily: 'monospace', fontSize: 11, color: _inkMute),
           ),
+          if (fork != null) _Turning(fork: fork, lead: lead),
           const Divider(height: 22),
 
           // The peg for the position sitting in the āyah that was tapped.
           for (final h in here) _Peg(position: h, isHere: true),
 
-          if (elsewhere.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-                'the other ${elsewhere.length} '
-                '${elsewhere.length == 1 ? "place" : "places"}',
+          // Where else the road runs. It is the evidence behind the counts
+          // above, not the thing to be read: a reciter who wants to know why
+          // this place is hard has been told already, in one line.
+          if (elsewhere.isNotEmpty)
+            Theme(
+              data:
+                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                title: Text(
+                  'the other ${elsewhere.length} '
+                  '${elsewhere.length == 1 ? "place" : "places"}',
+                  style: TextStyle(
+                      fontSize: 10,
+                      letterSpacing: 1.1,
+                      color: _inkMute,
+                      fontWeight: FontWeight.w600),
+                ),
+                children: [
+                  for (final e in elsewhere)
+                    _Sibling(position: e, onJump: onJump),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Where the road this place is on parts, and which way this place goes.
+///
+/// The road is what several places say alike; the fork is the first word at
+/// which they stop agreeing. Nothing in the road says which way to go, so this
+/// is the whole of what a reciter has to hold -- and the count beside each way
+/// is why: the mouth takes the way the most places take.
+class _Turning extends StatelessWidget {
+  const _Turning({required this.fork, required this.lead});
+
+  final Map<String, Object?> fork;
+  final bool lead;
+
+  String _word(Map<String, Object?> way) => (way['ends_surah'] == true)
+      ? '— the sūrah ends'
+      : (way['token'] as String? ?? '—');
+
+  @override
+  Widget build(BuildContext context) {
+    final rivals = (fork['rivals'] as List).cast<Map<String, Object?>>();
+    final places = fork['places'] as int;
+    final mine = fork['mine'] as int;
+    final odd = mine < places - mine;
+    final shown = rivals.take(3).toList();
+    final rest = rivals.skip(3).toList();
+    final restPlaces = rest.fold<int>(0, (n, r) => n + (r['places'] as int));
+
+    Widget way(String label, String word, int count, bool here) => Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              SizedBox(
+                width: 92,
+                child: Text(label,
+                    style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                        color: here ? _accent : _inkMute)),
+              ),
+              Expanded(
+                child: Text(word,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                        fontFamily: 'Amiri',
+                        fontSize: here ? 20 : 17,
+                        height: 1.7,
+                        color: here ? _ink : _inkSoft)),
+              ),
+              const SizedBox(width: 8),
+              Text('$count',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: here ? _accent : _inkMute)),
+            ],
+          ),
+        );
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      decoration: BoxDecoration(
+        color: odd && lead ? _goldSoft : _surface,
+        border: Border.all(color: odd && lead ? _goldBright : _surfaceAlt),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            odd
+                ? 'this place goes against the other ${places - mine}'
+                : '$places places share this road',
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: odd ? _goldDeep : _inkMute),
+          ),
+          way(
+              'here',
+              _word({'token': fork['turn'], 'ends_surah': fork['ends_surah']}),
+              mine,
+              true),
+          // The ways the crowd takes, biggest first, and only the first few.
+          // A road that parts eight ways is not eight things to hold: it is
+          // one -- what this place says -- against a scatter, and printing the
+          // scatter puts the reference list back inside the card.
+          for (var i = 0; i < shown.length; i++)
+            way(i == 0 ? 'elsewhere' : '', _word(shown[i]),
+                shown[i]['places'] as int, false),
+          if (rest.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 92),
+              child: Text(
+                '${rest.length} other ${rest.length == 1 ? "way" : "ways"}, '
+                '${restPlaces == rest.length ? "one place each" : "$restPlaces places"}',
                 style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 1.1,
-                    color: _inkMute,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            for (final e in elsewhere) _Sibling(position: e, onJump: onJump),
-          ],
+                    fontFamily: 'monospace', fontSize: 10, color: _inkMute),
+              ),
+            ),
         ],
       ),
     );

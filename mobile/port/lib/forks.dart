@@ -9,6 +9,131 @@ import 'package:sqlite3/common.dart';
 
 import 'official.dart';
 
+/// One way out of a fork, and how many places take it.
+class Rival {
+  const Rival({required this.token, required this.places, required this.endsSurah});
+
+  final String? token;
+  final int places;
+  final bool endsSurah;
+}
+
+/// How far one place stands from the crowd it shares a road with.
+///
+/// A road is wording several places say alike, and the fork is the first word
+/// at which they part. What trips a reciter is not that the road exists but
+/// standing in the minority at its end: if this place goes the way the other
+/// eleven go, the habit is right and nothing is at risk. One of two against
+/// ten, and the mouth will take the ten.
+class Stand {
+  const Stand({
+    required this.posId,
+    required this.phraseId,
+    required this.shape,
+    required this.places,
+    required this.mine,
+    required this.turn,
+    required this.endsSurah,
+    required this.roadEnd,
+    required this.rivals,
+  });
+
+  final int posId;
+  final int phraseId;
+  final String shape;
+
+  /// Places on this road, and of those, places taking the same way out as this
+  /// one does.
+  final int places;
+  final int mine;
+
+  /// The word this place turns on, or null where the road runs into the end of
+  /// its sūrah and there is no next word.
+  final String? turn;
+  final bool endsSurah;
+
+  /// The last word of the road: the fork is the word after it.
+  final int roadEnd;
+
+  /// The other ways out, largest first.
+  final List<Rival> rivals;
+
+  int get others => places - mine;
+
+  /// The places pulling the other way, weighted by what share of the road they
+  /// are: `others x others / places`. A place in the majority scores near
+  /// nothing -- the habit is right there. The single exception among nine
+  /// scores 7.1, and that is the one worth being stopped at.
+  double get danger => places == 0 ? 0 : others * others / places;
+}
+
+/// The stand of every position in a stretch of the corpus, or of named
+/// positions. Only forks worth asking about: a phrase whose places all continue
+/// the same way has no turning to miss.
+Map<int, Stand> forkStands(
+  CommonDatabase db, {
+  Iterable<int>? posIds,
+  int? firstWord,
+  int? lastWord,
+}) {
+  final where = posIds != null
+      ? 'o.pos_id IN (${List.filled(posIds.length, '?').join(',')})'
+      : 'o.start_word_id BETWEEN ? AND ?';
+  final args = posIds != null ? posIds.toList() : [firstWord, lastWord];
+  if (posIds != null && posIds.isEmpty) return const {};
+
+  final rows = db.select(
+    'SELECT o.pos_id, o.phrase_id, o.end_word_id, f.shape, f.shared_after, '
+    '       f.position_count AS places, b.branch_id, b.token_ar, '
+    '       b.ends_surah, b.position_count AS mine '
+    'FROM official_positions o '
+    'JOIN forks f ON f.phrase_id = o.phrase_id '
+    'JOIN fork_members m ON m.pos_id = o.pos_id '
+    'JOIN fork_branches b ON b.branch_id = m.branch_id '
+    "WHERE f.shape != 'no_fork' AND f.branch_count >= 2 AND $where",
+    args,
+  );
+  if (rows.isEmpty) return const {};
+
+  final phraseIds = {for (final r in rows) r['phrase_id'] as int}.toList();
+  final branches = <int, List<Row>>{};
+  for (final b in db.select(
+    'SELECT phrase_id, branch_id, token_ar, ends_surah, position_count '
+    'FROM fork_branches '
+    'WHERE phrase_id IN (${List.filled(phraseIds.length, '?').join(',')}) '
+    'ORDER BY position_count DESC',
+    phraseIds,
+  )) {
+    (branches[b['phrase_id'] as int] ??= []).add(b);
+  }
+
+  final out = <int, Stand>{};
+  for (final r in rows) {
+    final phraseId = r['phrase_id'] as int;
+    final mineId = r['branch_id'] as int;
+    out[r['pos_id'] as int] = Stand(
+      posId: r['pos_id'] as int,
+      phraseId: phraseId,
+      shape: r['shape'] as String,
+      places: r['places'] as int,
+      mine: r['mine'] as int,
+      turn: r['token_ar'] as String?,
+      endsSurah: (r['ends_surah'] as int? ?? 0) != 0,
+      roadEnd: (r['end_word_id'] as int) + (r['shared_after'] as int),
+      rivals: [
+        for (final b in branches[phraseId] ?? const <Row>[])
+          if (b['branch_id'] != mineId)
+            Rival(
+              token: b['token_ar'] as String?,
+              places: b['position_count'] as int,
+              endsSurah: (b['ends_surah'] as int? ?? 0) != 0,
+            ),
+      ],
+    );
+  }
+  return out;
+}
+
 /// Where a shared road ends, inside a stretch of the corpus.
 ///
 /// The word after one of these is the fork: the first word at which the places
@@ -18,18 +143,17 @@ import 'official.dart';
 ///
 /// Only forks worth asking about: a phrase whose positions all continue the
 /// same way has no turning to miss.
-List<int> roadEnds(CommonDatabase db, int firstWord, int lastWord) => [
-      for (final r in db.select(
-        'SELECT DISTINCT o.end_word_id + f.shared_after AS road_end '
-        'FROM official_positions o '
-        'JOIN forks f ON f.phrase_id = o.phrase_id '
-        "WHERE f.shape != 'no_fork' AND f.branch_count >= 2 "
-        'AND o.start_word_id BETWEEN ? AND ? '
-        'ORDER BY road_end',
-        [firstWord, lastWord],
-      ))
-        r['road_end'] as int,
-    ];
+Map<int, double> roadEnds(CommonDatabase db, int firstWord, int lastWord) {
+  final out = <int, double>{};
+  for (final stand
+      in forkStands(db, firstWord: firstWord, lastWord: lastWord).values) {
+    final at = stand.roadEnd;
+    // Two phrases can end their road on the same word. The stronger claim wins:
+    // it is the same stop either way, and it is the harder of the two.
+    if (stand.danger > (out[at] ?? -1)) out[at] = stand.danger;
+  }
+  return out;
+}
 
 class PhraseNotFound implements Exception {
   PhraseNotFound(this.message);

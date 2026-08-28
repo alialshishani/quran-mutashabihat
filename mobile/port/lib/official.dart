@@ -11,6 +11,8 @@ import 'dart:convert';
 
 import 'package:sqlite3/common.dart';
 
+import 'forks.dart' show Stand, forkStands;
+
 class AyahNotFound implements Exception {
   AyahNotFound(this.message);
   final String message;
@@ -185,6 +187,21 @@ Map<String, int> juzOfAll(CommonDatabase db) => {
     };
 
 /// Official mutashābih phrases touching this āyah, each position with its peg.
+/// What the panel and the drill both need to say about a fork, as plain data.
+Map<String, Object?> _forkOf(Stand s) => {
+      'shape': s.shape,
+      'places': s.places,
+      'mine': s.mine,
+      'others': s.others,
+      'turn': s.turn,
+      'ends_surah': s.endsSurah,
+      'danger': s.danger,
+      'rivals': [
+        for (final r in s.rivals)
+          {'token': r.token, 'places': r.places, 'ends_surah': r.endsSurah},
+      ],
+    };
+
 List<Map<String, Object?>> officialMatches(
   CommonDatabase db,
   int surah,
@@ -248,6 +265,19 @@ List<Map<String, Object?>> officialMatches(
       positions.add(p);
     }
 
+    // Where each of these places stands at the fork it shares: what it turns
+    // on, what the others turn on, and how far it is from the crowd. This is
+    // what makes one of an ayah's phrases the one that trips a reciter and the
+    // rest a reference list.
+    final stands = forkStands(
+      db,
+      posIds: [for (final p in positions) p['pos_id'] as int],
+    );
+    for (final p in positions) {
+      final s = stands[p['pos_id'] as int];
+      p['fork'] = s == null ? null : _forkOf(s);
+    }
+
     final here = positions.where((p) => p['is_query'] == true).toList();
     out.add({
       'phrase_id': phrase['phrase_id'],
@@ -261,6 +291,11 @@ List<Map<String, Object?>> officialMatches(
       'here': here,
       'elsewhere': positions.where((p) => p['is_query'] != true).toList(),
       'positions': positions,
+      'danger': here.isEmpty
+          ? 0.0
+          : here
+              .map((p) => ((p['fork'] as Map?)?['danger'] as num? ?? 0).toDouble())
+              .reduce((a, b) => a > b ? a : b),
     });
   }
 
@@ -283,9 +318,13 @@ List<Map<String, Object?>> officialMatches(
   }
 
   out.sort((a, b) {
-    // Python sorts on (-max_strength if here else 0, -set_count, phrase_id):
-    // with no `here`, the first key is 0 rather than -0-of-nothing, which is
-    // the same number, so this reproduces it exactly.
+    // How far this ayah's place stands from the crowd, first. An ayah can carry
+    // five curated phrases and be at risk from one of them; that one leads, and
+    // the rest are reference. Below it the Python's order is kept: strongest
+    // peg, then the wider confusion set, then phrase_id.
+    final da = -(a['danger'] as double);
+    final dbg = -(b['danger'] as double);
+    if (da != dbg) return da.compareTo(dbg);
     final ka = -strongest(a);
     final kb = -strongest(b);
     if (ka != kb) return ka.compareTo(kb);
