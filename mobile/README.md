@@ -21,6 +21,7 @@ shipped inside the APK and copied out on first launch.
 | `port/lib/official.dart` | `official_matches` — the curated phrases, each position with its peg |
 | `port/lib/lookup.dart` | `lookup` — the above plus pass A's detected repeats and their ḍawābiṭ |
 | `port/lib/forks.dart` | `fork_index`, `fork_detail` — the mutashābihāt as forks |
+| `port/lib/drill.dart` | the drill. **Not a port** — see below |
 | `app/lib/` | the Flutter app |
 | `tools/` | what builds the assets, and what dumps the goldens |
 
@@ -31,8 +32,8 @@ sides emit canonical JSON — keys sorted, UTF-8, compact — so a difference in
 order cannot hide a difference in content.
 
 ```bash
-python -m mobile.tools.dump_golden  mobile/golden          # the oracle
-cd mobile/port && dart run bin/verify.dart ../../data/quran.db ../golden
+python -m mobile.tools.dump_goldens mobile/golden           # the oracle
+cd mobile/port && dart run bin/verify.dart ../../data/quran.db ../golden/pages
 ```
 
 | Function | Cases | Result |
@@ -45,6 +46,50 @@ cd mobile/port && dart run bin/verify.dart ../../data/quran.db ../golden
 
 `bin/selfcheck.dart` additionally runs every page against two databases that
 plan their queries differently, which is what caught the ordering bug below.
+The drill has no oracle and is tested instead: `cd mobile/port && dart test`.
+
+## The drill
+
+The one part with no Python counterpart, so it cannot be checked against one. It
+is covered by `port/test/drill_test.dart` instead — 11 tests, two of which walk
+the entire pool rather than a sample.
+
+A fork already has the shape of a question. The road is the wording every
+position shares, the branches are the ways out, and each position takes exactly
+one of them: *you are here, reciting this — which way does it go?* A miss is
+answered with the peg `pipeline.pegs` verified for that position, because
+knowing the way out is not the same as knowing what tells this place from the
+others.
+
+**3,734 questions** over 808 forks: `all_but_one` 264, `two_way` 804, `many`
+2,666. `no_fork` is excluded — those positions never part, so there is nothing
+to ask. Cheapest shape first, so a reciter meets *one exception to hold* before
+*a peg per position*. Leitner boxes (0/1/3/7/21 days) on the device only.
+
+### Why the question shows the whole āyah
+
+Because without it a third of the drill is unanswerable. **491 forks have a
+single sūrah taking two or more different ways out**, covering **1,313 of the
+3,734 positions**. For those, naming the sūrah settles nothing and the road is
+shared by definition — only the wording leading into the fork tells them apart.
+So the question shows the āyah from its first word up to the fork, or the tail
+of the āyah before when the road opens this one.
+
+That leaves 18 where the same sūrah says the same words into the same fork
+twice and then parts. Nothing in the recitation separates those, and the
+reciter's only handle is which time it is — which is what an `ORDINAL_IN_SURAH`
+peg is (`docs/PEGS.md`). The question carries that as a badge, and only where a
+sūrah holds more than one occurrence.
+
+```bash
+cd mobile/port && dart run bin/drill_audit.dart ../../data/quran.db
+```
+
+| | |
+|---|---|
+| ambiguous within a sūrah | **0** |
+| ambiguous only across sūrahs | 49 — the question names the sūrah, so answerable |
+| no run-up at all | 4 — all of them open a sūrah |
 
 ## What the port found in the Python
 
@@ -112,10 +157,12 @@ Amiri, the one font this repository does vendor into a build, is OFL.
 1. **The package id is `com.example.qcf_spike`** and the build is signed with
    Flutter's debug keystore. Play refuses `com.example.*`; a debug-signed build
    cannot be updated over. Both want fixing before this leaves the bench.
-2. **`lookup` runs on the UI thread.** Fast in practice, but a phrase with 90
+2. **The drill asks about official phrases only.** Pass A's own detected
+   repeats have ḍawābiṭ too and are not drilled.
+3. **`lookup` runs on the UI thread.** Fast in practice, but a phrase with 90
    positions loads a lot of āyah text; an isolate is the fix if a tap ever drags.
-3. **No dark mode.** `app/mushaf_page.py` carries a full dark palette and the
+4. **No dark mode.** `app/mushaf_page.py` carries a full dark palette and the
    app ignores it.
-4. **The page opens at 89 every time.** It should remember where you were.
-5. **iOS is untouched** — the Dart is platform-agnostic and `corpus_native.dart`
+5. **The page opens at 89 every time.** It should remember where you were.
+6. **iOS is untouched** — the Dart is platform-agnostic and `corpus_native.dart`
    already covers it, but nothing has been built or run there.

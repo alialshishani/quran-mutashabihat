@@ -8,3 +8,6 @@ environment:
 
 dependencies:
   sqlite3: ^2.4.0
+
+dev_dependencies:
+  test: ^1.25.0

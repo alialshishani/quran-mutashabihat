@@ -16,6 +16,7 @@ import 'package:quran_port/mushaf.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
 
 import 'corpus.dart';
+import 'drill_screen.dart';
 import 'forks_screen.dart';
 import 'navigate.dart';
 import 'panel.dart';
@@ -293,6 +294,12 @@ class _MushafViewState extends State<MushafView> {
     ));
   }
 
+  void _openDrill() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => DrillScreen(db: widget.db, onGo: _jump),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final doc = _doc;
@@ -402,6 +409,11 @@ class _MushafViewState extends State<MushafView> {
                 tooltip: 'Forks',
                 onPressed: _openForks,
                 icon: const Icon(Icons.call_split),
+              ),
+              IconButton(
+                tooltip: 'Drill',
+                onPressed: _openDrill,
+                icon: const Icon(Icons.school_outlined),
               ),
               // The muṣḥaf reads right to left, so the arrows do too.
               IconButton(
