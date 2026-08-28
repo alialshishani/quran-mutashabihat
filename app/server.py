@@ -13,6 +13,7 @@ Endpoints
     GET /api/official/7060                one fork in full
     GET /api/page/42                      one printed page, line for line
     GET /api/measure                      the densest lines, for setting the type
+    GET /fonts/qcf-v1/p42.woff2           the KFGQPC font page 42 is set in
     GET /api/surahs                       sūrah list with āyah counts
     GET /api/scopes                       which analysis scopes are populated
     GET /api/health                       corpus row counts
@@ -40,6 +41,8 @@ from app.page import html as lookup_html
 VERSE_PATH = re.compile(r"^/api/mutashabih/(\d+)[/:](\d+)$")
 PHRASE_PATH = re.compile(r"^/api/(?:official|forks)/(\d+)$")
 PAGE_PATH = re.compile(r"^/api/page/(\d+)$")
+FONT_PATH = re.compile(r"^/fonts/qcf-v1/p(\d+)\.woff2$")
+FONT_DIR = Path(__file__).resolve().parents[1] / "data" / "raw" / "fonts" / "qcf-v1"
 
 # Sentinels: the router names a page, the handler renders and caches it.
 PAGE_LOOKUP = "page:lookup"
@@ -50,6 +53,21 @@ PAGES = {PAGE_LOOKUP: lookup_html, PAGE_FORKS: forks_html, PAGE_MUSHAF: mushaf_h
 
 class BadRequest(ValueError):
     """A parameter the caller can fix."""
+
+
+class NotFound(LookupError):
+    """Nothing is served at this path."""
+
+
+def font_bytes(page: int) -> bytes:
+    """One page's KFGQPC font, straight off disk.
+
+    Vendored by `scripts.fetch_qcf`; checksums in data/raw/qcf-v1-manifest.json.
+    """
+    path = (FONT_DIR / f"p{page}.woff2").resolve()
+    if not path.is_relative_to(FONT_DIR.resolve()) or not path.exists():
+        raise NotFound(f"no font for page {page}; run: python -m scripts.fetch_qcf")
+    return path.read_bytes()
 
 
 def _int_param(query: dict[str, list[str]], name: str, default: int | None) -> int | None:
@@ -77,6 +95,10 @@ def build_response(con: sqlite3.Connection, path: str, query: dict) -> tuple[int
         return HTTPStatus.OK, PAGE_FORKS
     if path == "/mushaf":
         return HTTPStatus.OK, PAGE_MUSHAF
+
+    matched = FONT_PATH.match(path)
+    if matched:
+        return HTTPStatus.OK, font_bytes(int(matched.group(1)))
 
     matched = PAGE_PATH.match(path)
     if matched or path == "/api/page":
@@ -169,13 +191,16 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- plumbing -------------------------------------------------------------
 
-    def _send(self, status: int, body: bytes, content_type: str) -> None:
+    def _send(
+        self, status: int, body: bytes, content_type: str, cache: str = "no-store"
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         # The pages are generated per process, not per request; a cached copy in
-        # the browser survives a restart of the server and hides the change.
-        self.send_header("Cache-Control", "no-store")
+        # the browser survives a restart of the server and hides the change. The
+        # fonts are the opposite: fixed bytes, and 604 of them.
+        self.send_header("Cache-Control", cache)
         if self.cors:
             self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -201,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         except BadRequest as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
-        except (L.AyahNotFound, L.PhraseNotFound, L.PageNotFound) as exc:
+        except (L.AyahNotFound, L.PhraseNotFound, L.PageNotFound, NotFound) as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
             return
         except L.LayoutMissing as exc:
@@ -211,6 +236,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"database error: {exc}"})
             return
 
+        if isinstance(payload, bytes):
+            self._send(status, payload, "font/woff2", cache="public, max-age=31536000, immutable")
+            return
         if isinstance(payload, str) and payload in PAGES:
             cache = type(self).page_cache
             if payload not in cache:

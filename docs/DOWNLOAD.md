@@ -43,3 +43,18 @@ python -m scripts.intake
 
 It writes SHA-256 sums, dumps each SQLite file's table/column layout, and **fails loudly
 if a schema differs from what brief §3 expects** rather than improvising a mapping.
+
+## The muṣḥaf's own typeface — no sign-in needed
+
+Unlike everything above, the KFGQPC page fonts and the glyph codes that address them are
+served openly. There is nothing to click and nothing to save by hand:
+
+```bash
+python -m scripts.fetch_qcf        # 604 fonts + 604 code files, ~69 MB, resumable
+python -m pipeline.glyphs --rebuild
+```
+
+Fonts come from the QUL CDN, codes from the Quran.com v4 API. The script writes a
+SHA-256 per file to `data/raw/qcf-v1-manifest.json`, which **is** tracked; the files
+themselves are gitignored. Licence terms for redistributing the font binaries are
+unresolved — see `data/raw/PROVENANCE.md`.

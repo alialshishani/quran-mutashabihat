@@ -599,6 +599,16 @@ def has_layout(con: sqlite3.Connection) -> bool:
     )
 
 
+def has_glyphs(con: sqlite3.Connection) -> bool:
+    """Whether `pipeline.glyphs` has bound the KFGQPC page fonts to this corpus."""
+    present = con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'glyphs'"
+    ).fetchone()
+    return bool(present) and bool(
+        con.execute("SELECT COUNT(*) FROM glyphs LIMIT 1").fetchone()[0]
+    )
+
+
 def page_count(con: sqlite3.Connection) -> int:
     if not has_layout(con):
         return 0
@@ -753,6 +763,43 @@ def mushaf_page(con: sqlite3.Connection, page: int, *, scope: str = DEFAULT_SCOP
             for word_id in range(lo, hi + 1):
                 phrases_at.setdefault(word_id, []).append(hit["phrase_id"])
 
+    # KFGQPC cuts a font per page, with each glyph already shaped and elongated
+    # to fill the line it belongs to. Where those glyphs are bound, they are what
+    # the line is made of, and the font's own record of which line a token sits
+    # on is what orders them — see pipeline.glyphs.
+    glyph_lines: dict[int, list[dict]] = {}
+    if has_glyphs(con):
+        for row in con.execute(
+            "SELECT g.line, g.kind, g.word_id, g.verse_key, g.code_v1, "
+            "       w.surah, w.ayah, w.word_pos, w.text_uthmani "
+            "FROM glyphs g LEFT JOIN words w ON w.word_id = g.word_id "
+            "WHERE g.page = ? ORDER BY g.line, g.ordinal",
+            (page,),
+        ):
+            key = row["verse_key"]
+            surah, ayah = (int(part) for part in key.split(":"))
+            if row["kind"] == "word":
+                token = {
+                    "kind": "word",
+                    "word_id": row["word_id"],
+                    "verse_key": key,
+                    "surah": surah,
+                    "ayah": ayah,
+                    "word_pos": row["word_pos"],
+                    "text": row["text_uthmani"],
+                    "code": row["code_v1"],
+                    "phrase_ids": [],
+                }
+            else:
+                token = {
+                    "kind": "marker",
+                    "verse_key": key,
+                    "surah": surah,
+                    "ayah": ayah,
+                    "code": row["code_v1"],
+                }
+            glyph_lines.setdefault(row["line"], []).append(token)
+
     surah_rows = {r["surah"]: r for r in con.execute("SELECT * FROM surahs ORDER BY surah")}
 
     keys: list[str] = []
@@ -773,6 +820,15 @@ def mushaf_page(con: sqlite3.Connection, page: int, *, scope: str = DEFAULT_SCOP
             }
         elif row["line_type"] == "basmallah":
             line["words"] = _basmalah(con)
+        elif row["line"] in glyph_lines:
+            tokens = glyph_lines[row["line"]]
+            for token in tokens:
+                if token["kind"] != "word":
+                    continue
+                if token["verse_key"] not in keys:
+                    keys.append(token["verse_key"])
+                token["phrase_ids"] = phrases_at.get(token["word_id"], [])
+            line["tokens"] = tokens
         else:
             tokens = []
             for src in range(row["src_first"], row["src_last"] + 1):
@@ -856,6 +912,9 @@ def mushaf_page(con: sqlite3.Connection, page: int, *, scope: str = DEFAULT_SCOP
         "prev": page - 1 if page > 1 else None,
         "next": page + 1 if page < total else None,
         "lines_printed": len(lines),
+        # When set, the page is drawn in the muṣḥaf's own glyphs and this is the
+        # font that holds them. Heading and basmalah lines are not in it.
+        "glyph_font": f"/fonts/qcf-v1/p{page}.woff2" if glyph_lines else None,
         "juz": ayat[0]["juz"] if ayat else None,
         "hizb": ayat[0]["hizb"] if ayat else None,
         "surahs": [

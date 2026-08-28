@@ -27,11 +27,16 @@ python -m pipeline.pegs --rebuild
 python -m pipeline.forks --rebuild
 ```
 
-For the muṣḥaf page — the printed page, line for line:
+For the muṣḥaf page — the printed page, line for line, in its own typeface:
 
 ```bash
 python -m pipeline.layout --rebuild
+python -m scripts.fetch_qcf              # the KFGQPC page fonts and glyph codes
+python -m pipeline.glyphs --rebuild
 ```
+
+Without the last two the page still works, set in a general Arabic face instead of the
+muṣḥaf's own. See `docs/MUSHAF.md`.
 
 ## Endpoints
 
@@ -45,6 +50,7 @@ python -m pipeline.layout --rebuild
 | `GET /api/mutashabih?surah=2&ayah=25` | Everything for one āyah (JSON). |
 | `GET /api/mutashabih/2/25` | Same, path form. |
 | `GET /api/page/89` | One printed page: its lines, the tokens on each, and what repeats there. |
+| `GET /fonts/qcf-v1/p89.woff2` | The KFGQPC font page 89 is set in. |
 | `GET /api/surahs` | 114 sūrahs with āyah counts and page ranges, for the pickers. |
 | `GET /api/scopes` | Which analysis scopes are populated. |
 | `GET /api/health` | Row counts per table. |

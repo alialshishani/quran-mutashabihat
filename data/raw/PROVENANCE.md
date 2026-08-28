@@ -37,6 +37,49 @@ as product.
 `phrases.json` and `phrase_verses.json`. `scripts/extract.py` dispatches on magic bytes rather
 than filename; trusting the extension silently loses this resource.
 
+## KFGQPC page fonts and glyph codes
+
+Fetched **2026-08-28** by `python -m scripts.fetch_qcf`, which also wrote a SHA-256 per
+file to `data/raw/qcf-v1-manifest.json` (tracked). Neither origin is gated: no account,
+no sign-in.
+
+The muṣḥaf is not set in one typeface. KFGQPC cuts a font **per page**, holding that
+page's glyphs already shaped and already elongated to fill their lines, addressed through
+a private encoding. A page therefore needs two things, and they come from two places.
+
+| What | Files | Bytes | Origin |
+|---|---|---|---|
+| QCF V1 page fonts (woff2) | 604 | 41,634,228 | `static-cdn.tarteel.ai/qul/fonts/quran_fonts/v1-optimized/woff2/p{page}.woff2` |
+| Per-word `code_v1`, with page and line | 604 | 26,275,322 | `api.quran.com/api/v4/verses/by_page/{page}` |
+
+`api.quran.com` is a **new origin for this repository** — everything above it came from
+QUL. It is the Quran.com v4 API, open and unauthenticated. It is used for one field,
+`code_v1`, plus the `page_number` and `line_number` that make the field checkable; no
+Qur'anic text is taken from it, since the corpus already has the text from QUL resource
+56.
+
+`pipeline.glyphs` binds the codes to the corpus by position and refuses to write if the
+two disagree about which **page** a token prints on. They are independent records of the
+same 1405H typesetting, and across all 604 pages they disagree about three things, all
+recorded as notes rather than errors:
+
+- **2 words** at a line boundary (13:37 word 9, 36:52 word 11) that the font and the QUL
+  layout put on different lines. The glyph is cut to fill the line the font puts it on,
+  so the font's placement is the one that renders, and it is the one stored.
+- **3 āyāt** (2:181, 8:6, 13:37) where the font sets a word pair as one two-glyph token
+  that the Uthmānī source splits. The merge never crosses an āyah, so nothing keyed by
+  āyah loses by it.
+
+### Licence — unresolved, and more sharply than for the text
+
+These are **font binaries cut by the King Fahd Glorious Qur'an Printing Complex**, served
+by a third party. The redistribution question already open below for the QUL datasets
+applies here with less room for optimism: nothing in this repository establishes a right
+to redistribute them. They are gitignored — `scripts.fetch_qcf` refetches them from the
+origins above — so the repository ships the *means* to obtain them, not the files. That
+is a stopgap, not an answer, and it must be settled before M8 ships anything to end
+users.
+
 ## Licence
 
 QUL publishes **no per-resource licence** on the download pages — inspected on 2026-08-26, the

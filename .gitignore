@@ -12,3 +12,7 @@ data/interim/
 # data/raw/PROVENANCE.md records every checksum and licence and IS tracked.
 data/raw/*
 !data/raw/PROVENANCE.md
+# Checksums of the KFGQPC fonts and glyph codes fetched by scripts.fetch_qcf.
+# The 69 MB they describe stays out; the record of exactly what was fetched
+# belongs in the repository.
+!data/raw/qcf-v1-manifest.json

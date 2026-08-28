@@ -93,7 +93,14 @@ button {
 }
 button.ghost { color:var(--accent); background:transparent; }
 button.ghost:disabled { opacity:.35; cursor:default; }
-button.step { font-size:1rem; line-height:1; padding:.4rem .75rem; }
+/* A muṣḥaf turns leftward, so the left button is the next page. The arrows say
+   which way, and the number on each says exactly where, so neither has to be
+   guessed from the direction alone. */
+button.step {
+  display:inline-flex; align-items:center; gap:.3rem; padding:.4rem .7rem;
+  font-size:.95rem; line-height:1; font-variant-numeric:tabular-nums;
+}
+button.step .to { font-family:"IBM Plex Mono",monospace; font-size:.8rem; }
 .bar .count { font-family:"IBM Plex Mono",monospace; font-size:.75rem; color:var(--ink-mute);
               font-variant-numeric:tabular-nums; }
 
@@ -134,6 +141,34 @@ button.step { font-size:1rem; line-height:1; padding:.4rem .75rem; }
   aspect-ratio:1 / 1.55;
 }
 .qline { position:relative; direction:rtl; line-height:1.35; }
+
+/* A page set in its own KFGQPC font. The glyphs arrive already elongated to
+   fill their line, so the line needs no justification at all — only a type size
+   at which one line-width lands on the measure. `cqi` is a length in the text
+   block's own content box, so that size is taken from the measure itself and
+   re-taken whenever the window changes, with nothing measured in script. */
+.lines.glyphs { container-type:inline-size; }
+/* Only a line whose tokens carry glyph codes. A page's font holds that page's
+   glyphs and nothing else, so the heading and basmalah lines — which have no
+   codes — must keep the ordinary face or they render as empty boxes. */
+.qtext.qcf {
+  display:block; font-family:var(--qcf), serif; white-space:nowrap;
+  font-size:calc(100cqi / var(--em, 14.2)); text-align:right;
+}
+.qtext.qcf .w { padding:0; }
+.qtext.qcf .w.shared { box-shadow:inset 0 -.06em 0 var(--gold-soft); }
+/* The marker is a glyph of the page's own font here, not a drawn circle. */
+.qtext.qcf .ayah-num {
+  display:inline; width:auto; height:auto; margin:0; font-size:inherit;
+  font-family:inherit; border:0; border-radius:0; box-shadow:none;
+  color:var(--gold-ink);
+}
+.qtext.qcf .ayah-num.flag { background:transparent; color:#8A6410; }
+/* The lines the font cannot set are still set from the page's measure, at about
+   the size the print gives them. */
+/* Amiri's vowelled glyphs reach well past their line box, so the box has to be
+   tall enough to hold them or they collide with the āyah line beneath. */
+.lines.glyphs .qtext:not(.qcf) { font-size:calc(100cqi / 17.5); line-height:1.75; }
 /* The words of the line, justified to the measure by their spaces alone. The
    letterforms are never scaled: a stretched glyph is not the muṣḥaf's glyph. */
 .qtext {
@@ -145,7 +180,7 @@ button.step { font-size:1rem; line-height:1; padding:.4rem .75rem; }
                         visibility:hidden; }
 #probe {
   position:absolute; visibility:hidden; pointer-events:none; white-space:nowrap;
-  width:max-content; font-family:"Mushaf","Amiri Quran",serif;
+  width:max-content; font-family:"Mushaf","Amiri Quran",serif; direction:rtl;
 }
 .qtext .w { cursor:pointer; padding:0 .05em; border-radius:3px; }
 .qtext .w.shared { box-shadow:inset 0 -.09em 0 var(--gold-soft); }
@@ -161,14 +196,32 @@ button.step { font-size:1rem; line-height:1; padding:.4rem .75rem; }
 }
 .ayah-num.flag { background:var(--gold-soft); color:#4A3810; }
 
+/* The muṣḥaf sets a sūrah heading in a cartouche the full width of the text
+   block: a ruled frame, the name centred in it, and the space either side
+   filled with ornament rather than left blank. All of it is drawn in CSS, so
+   nothing here depends on a glyph the font may not carry. */
+.qtext.band-line { display:block; width:100%; }
 .band {
-  display:flex; align-items:center; justify-content:center; gap:.6rem;
-  border:1px solid var(--gold); border-radius:2px; background:var(--paper-sunk);
-  box-shadow:inset 0 0 0 2px var(--paper), inset 0 0 0 3px var(--gold-soft);
-  padding:.05em 2.2em;
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:.8em;
+  width:100%; padding:.16em .8em; border:1px solid var(--gold); border-radius:1px;
+  background:linear-gradient(var(--paper-sunk), var(--paper));
+  box-shadow:inset 0 0 0 1.5px var(--paper), inset 0 0 0 2.5px var(--gold-soft);
 }
-.band .bname { font-family:"Mushaf","Amiri Quran",serif; font-size:1em; direction:rtl;
-               color:var(--gold-ink); }
+/* Each flank is a pair of hairlines closed by a diamond at the name's side. */
+.band .orn {
+  position:relative; height:.42em;
+  background:linear-gradient(var(--gold-soft), var(--gold-soft)) 0 28%/100% 1px no-repeat,
+             linear-gradient(var(--gold-soft), var(--gold-soft)) 0 72%/100% 1px no-repeat;
+}
+.band .orn::before {
+  content:""; position:absolute; top:50%; margin-top:-.19em;
+  width:.38em; height:.38em; background:var(--gold); transform:rotate(45deg);
+  box-shadow:0 0 0 1.5px var(--paper);
+}
+.band .orn:first-child::before { inset-inline-end:0; }
+.band .orn:last-child::before { inset-inline-start:0; }
+.band .bname { font-family:"Mushaf","Amiri Quran",serif; font-size:.92em; direction:rtl;
+               color:var(--gold-ink); line-height:1.5; white-space:nowrap; }
 .bism { justify-content:center; }
 
 .legend { display:flex; flex-wrap:wrap; gap:1rem; justify-content:center;
@@ -277,16 +330,35 @@ let DENSEST = 0;      // width of the muṣḥaf's densest line, at the base siz
 
 /* -- the sheet ------------------------------------------------------------ */
 
+// The font for the page being drawn. One @font-face rule is kept and rewritten
+// rather than accumulating 604 of them.
+function useFont(page, url) {
+  let style = $("#qcf");
+  if (!style) {
+    style = el("style");
+    style.id = "qcf";
+    document.head.appendChild(style);
+  }
+  const family = "qcf-p" + page;
+  style.textContent =
+    `@font-face { font-family:"${family}"; src:url("${url}") format("woff2"); ` +
+    `font-display:block; }`;
+  $("#lines").style.setProperty("--qcf", `"${family}"`);
+  return family;
+}
+
 function drawLine(line, marksBy) {
   const node = el("div", "qline");
   const text = el("div", "qtext" + (line.centered ? " center" : ""));
   node.appendChild(text);
 
   if (line.type === "surah_name") {
-    text.classList.add("center");
+    text.classList.add("band-line");
     const box = el("div", "band");
     box.title = `${line.revelation_place} · ${line.ayah_count} ayat`;
+    box.appendChild(el("span", "orn"));
     box.appendChild(el("span", "bname", line.name_ar));
+    box.appendChild(el("span", "orn"));
     text.appendChild(box);
     return node;
   }
@@ -300,10 +372,12 @@ function drawLine(line, marksBy) {
     return node;
   }
 
+  if (line.tokens.some((t) => t.code)) text.classList.add("qcf");
   for (const tok of line.tokens) {
     if (tok.kind === "marker") {
       const mark = marksBy[tok.verse_key] || {};
-      const num = el("span", "ayah-num" + (mark.official ? " flag" : ""), ind(tok.ayah));
+      const num = el("span", "ayah-num" + (mark.official ? " flag" : ""),
+                     tok.code || ind(tok.ayah));
       num.dataset.key = tok.verse_key;
       num.title = mark.official
         ? `${tok.verse_key} · ${mark.official} official mutashabih phrase(s)`
@@ -311,12 +385,38 @@ function drawLine(line, marksBy) {
       text.appendChild(num);
       continue;
     }
-    const word = el("span", "w" + (tok.phrase_ids.length ? " shared" : ""), tok.text);
+    const word = el("span", "w" + (tok.phrase_ids.length ? " shared" : ""),
+                    tok.code || tok.text);
     word.dataset.key = tok.verse_key;
+    if (tok.code) word.title = tok.text;
     text.appendChild(word);
-    text.appendChild(document.createTextNode(" "));
+    if (!tok.code) text.appendChild(document.createTextNode(" "));
   }
   return node;
+}
+
+// Every line of a page is cut to the same width in its own font, but that width
+// differs a little from page to page, so the divisor is taken per page — from
+// the widest line, since that is the one the measure has to hold. CSS does the
+// rest: the type is set from the measure, not from a pixel size fixed here.
+async function sizeGlyphPage() {
+  const box = $("#lines");
+  const family = getComputedStyle(box).getPropertyValue("--qcf").trim();
+  try {
+    await document.fonts.load(`100px ${family}`);
+  } catch (err) {
+    /* the page still draws, just at the default divisor */
+  }
+  const probe = $("#probe");
+  probe.style.font = `100px ${family}`;
+  let widest = 0;
+  for (const text of box.querySelectorAll(".qtext.qcf")) {
+    probe.textContent = text.textContent;
+    widest = Math.max(widest, probe.scrollWidth);
+  }
+  probe.textContent = "";
+  probe.style.font = "";
+  if (widest) box.style.setProperty("--em", (widest / 100 + 0.02).toFixed(3));
 }
 
 // The widest a line of this page wants to be, at the page's base size.
@@ -408,12 +508,21 @@ function drawPage(data) {
     `${data.counts.with_official} carrying an official mutashabih`;
   $("#prev").disabled = !data.prev;
   $("#next").disabled = !data.next;
+  $("#prev-n").textContent = data.prev || "";
+  $("#next-n").textContent = data.next || "";
+  $("#prev").title = data.prev ? `back to page ${data.prev}` : "the first page";
+  $("#next").title = data.next ? `on to page ${data.next}` : "the last page";
 
   const box = $("#lines");
   box.textContent = "";
+  box.classList.toggle("glyphs", Boolean(data.glyph_font));
+  if (data.glyph_font) useFont(data.page, data.glyph_font);
   for (const line of data.lines) box.appendChild(drawLine(line, marksBy));
-  fitLines();
-  requestAnimationFrame(fitLines);
+  if (data.glyph_font) sizeGlyphPage();
+  else {
+    fitLines();
+    requestAnimationFrame(fitLines);
+  }
   paint();
 }
 
@@ -713,10 +822,10 @@ def html() -> str:
   </nav>
 
   <div class="bar">
-    <button class="ghost step" id="prev" type="button" title="previous page">&rsaquo;</button>
+    <button class="ghost step" id="next" type="button">&#8592;<span class="to" id="next-n"></span></button>
     <span><label for="page">page</label>
       <input type="number" id="page" min="1" max="604" value="1"></span>
-    <button class="ghost step" id="next" type="button" title="next page">&lsaquo;</button>
+    <button class="ghost step" id="prev" type="button"><span class="to" id="prev-n"></span>&#8594;</button>
     <span class="grow"><label for="surah">jump to</label>
       <select id="surah"><option value="">sūrah…</option></select></span>
     <span class="count" id="total"></span>
@@ -746,7 +855,8 @@ def html() -> str:
     aids. They say where a wording sits, never why it is worded that way.</div>
     <div>Lines, pages and headings come from the KFGQPC layout recorded in
     <code>data/raw/PROVENANCE.md</code>; every token is served byte-for-byte from the
-    database. The typeface is not the muṣḥaf's own — see <code>docs/MUSHAF.md</code>.
+    database. Āyah lines are set in the font KFGQPC cut for that page — sūrah
+    headings and basmalah lines are not yet. See <code>docs/MUSHAF.md</code>.
     JSON for this view: <code>/api/page/1</code>.</div>
   </footer>
 </div>
