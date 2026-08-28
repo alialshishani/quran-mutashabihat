@@ -15,15 +15,26 @@ import 'package:quran_port/drill.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
 
 import 'progress.dart';
+import 'theme.dart';
 
-const Color _ink = Color(0xFF191C19);
-const Color _inkSoft = Color(0xFF4A5049);
-const Color _inkMute = Color(0xFF767C74);
-const Color _accent = Color(0xFF16584A);
-const Color _accentSoft = Color(0xFFE4EFEA);
-const Color _gold = Color(0xFF8A6C22);
-const Color _goldSoft = Color(0xFFFBEFD2);
-const Color _wrongTint = Color(0xFF8C3B2E);
+// The palette in force, read by name; see theme.dart. These are getters
+// rather than constants because the light can change while the app is up.
+Color get _raised => palette.raised;
+Color get _paper => palette.paper;
+Color get _ink => palette.ink;
+Color get _inkSoft => palette.inkSoft;
+Color get _inkMute => palette.inkMute;
+Color get _accent => palette.accent;
+Color get _accentSoft => palette.accentSoft;
+Color get _gold => palette.gold;
+Color get _goldBright => palette.goldBright;
+Color get _goldSoft => palette.goldSoft;
+Color get _goldDeep => palette.goldDeep;
+Color get _surface => palette.surface;
+Color get _surfaceAlt => palette.surfaceAlt;
+Color get _rule => palette.line;
+Color get _wrongTint => palette.wrong;
+Color get _wrongSoft => palette.wrongSoft;
 
 class DrillScreen extends StatefulWidget {
   const DrillScreen({
@@ -118,7 +129,7 @@ class _DrillScreenState extends State<DrillScreen> {
     final progress = _progress;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFCFCFA),
+      backgroundColor: _paper,
       appBar: AppBar(
         leading: IconButton(
           tooltip: 'Menu',
@@ -133,7 +144,7 @@ class _DrillScreenState extends State<DrillScreen> {
               child: Center(
                 child: Text(
                   '$_right / ${_right + _wrong}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'monospace', fontSize: 13, color: _inkSoft),
                 ),
               ),
@@ -149,7 +160,7 @@ class _DrillScreenState extends State<DrillScreen> {
                 const SizedBox(height: 14),
                 _road(q),
                 const SizedBox(height: 18),
-                const Text('which way does it go?',
+                Text('which way does it go?',
                     style: TextStyle(fontSize: 12, color: _inkMute)),
                 const SizedBox(height: 8),
                 for (final o in _shuffled) _option(q, o),
@@ -173,7 +184,7 @@ class _DrillScreenState extends State<DrillScreen> {
                         return Text(
                           '${s.due} due  ·  ${s.seen} seen  ·  '
                           '${_pool.length} in all',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 11,
                               color: _inkMute),
@@ -194,11 +205,10 @@ class _DrillScreenState extends State<DrillScreen> {
         children: [
           Text(q.surahNameAr,
               textDirection: TextDirection.rtl,
-              style: const TextStyle(
-                  fontFamily: 'Amiri', fontSize: 18, color: _ink)),
+              style: TextStyle(fontFamily: 'Amiri', fontSize: 18, color: _ink)),
           const SizedBox(width: 8),
           Text(q.verseKey,
-              style: const TextStyle(
+              style: TextStyle(
                   fontFamily: 'monospace', fontSize: 12, color: _inkMute)),
           const Spacer(),
           if (q.countInSurah > 1)
@@ -212,11 +222,11 @@ class _DrillScreenState extends State<DrillScreen> {
               // For eighteen positions nothing in the wording tells them apart,
               // and which time it is in the sūrah is the reciter's only handle.
               child: Text('${q.ordinalInSurah} of ${q.countInSurah} here',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'monospace', fontSize: 10, color: _gold)),
             ),
           Text('one of ${q.positionCount}',
-              style: const TextStyle(
+              style: TextStyle(
                   fontFamily: 'monospace', fontSize: 11, color: _inkMute)),
         ],
       );
@@ -236,15 +246,15 @@ class _DrillScreenState extends State<DrillScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFECEEE9)),
+        color: _raised,
+        border: Border.all(color: _surfaceAlt),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (fromPreviousAyah)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(bottom: 4),
               child: Text('end of the āyah before',
                   style: TextStyle(fontSize: 10, color: _inkMute)),
@@ -254,7 +264,7 @@ class _DrillScreenState extends State<DrillScreen> {
               if (runUp != null)
                 TextSpan(
                   text: '$runUp ',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'Amiri',
                       fontSize: 19,
                       height: 2.0,
@@ -262,13 +272,13 @@ class _DrillScreenState extends State<DrillScreen> {
                 ),
               TextSpan(
                 text: q.roadAr,
-                style: const TextStyle(
+                style: TextStyle(
                     fontFamily: 'Amiri',
                     fontSize: 23,
                     height: 2.0,
                     color: _ink),
               ),
-              const TextSpan(
+              TextSpan(
                 text: ' …',
                 style: TextStyle(
                     fontFamily: 'Amiri',
@@ -289,14 +299,14 @@ class _DrillScreenState extends State<DrillScreen> {
     final isAnswer = o.branchId == q.answerBranchId;
     final isPicked = o.branchId == _picked;
 
-    Color border = const Color(0xFFDFE2DC);
-    Color fill = Colors.white;
+    Color border = _rule;
+    Color fill = _raised;
     if (answered && isAnswer) {
       border = _accent;
       fill = _accentSoft;
     } else if (answered && isPicked) {
       border = _wrongTint;
-      fill = const Color(0xFFF7E7E4);
+      fill = _wrongSoft;
     }
 
     return Padding(
@@ -322,14 +332,14 @@ class _DrillScreenState extends State<DrillScreen> {
                         ? Icons.check
                         : (isPicked ? Icons.close : Icons.remove),
                     size: 16,
-                    color: isAnswer
-                        ? _accent
-                        : (isPicked ? _wrongTint : const Color(0xFFDFE2DC)),
+                    color: isAnswer ? _accent : (isPicked ? _wrongTint : _rule),
                   ),
                 if (answered) const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    o.endsSurah ? '— the sūrah ends here —' : (o.tokenAr ?? '—'),
+                    o.endsSurah
+                        ? '— the sūrah ends here —'
+                        : (o.tokenAr ?? '—'),
                     textDirection: TextDirection.rtl,
                     textAlign: TextAlign.right,
                     style: TextStyle(
@@ -345,7 +355,7 @@ class _DrillScreenState extends State<DrillScreen> {
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: Text('${o.positionCount}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 11,
                             color: _inkMute)),
@@ -369,14 +379,13 @@ class _DrillScreenState extends State<DrillScreen> {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: peg == null ? const Color(0xFFF3F4F0) : _goldSoft,
+            color: peg == null ? _surface : _goldSoft,
             borderRadius: BorderRadius.circular(8),
-            border: peg == null
-                ? null
-                : Border.all(color: const Color(0xFFD8A93C), width: 0.8),
+            border:
+                peg == null ? null : Border.all(color: _goldBright, width: 0.8),
           ),
           child: peg == null
-              ? const Text(
+              ? Text(
                   'No ḍābiṭ verified for this position — the confusion set does '
                   'not yield a cue that holds it apart on its own.',
                   style: TextStyle(fontSize: 12, color: _inkSoft, height: 1.5),
@@ -387,7 +396,7 @@ class _DrillScreenState extends State<DrillScreen> {
                     Row(
                       children: [
                         Text(peg['kind'] as String,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 9.5,
                                 letterSpacing: 0.8,
@@ -395,7 +404,7 @@ class _DrillScreenState extends State<DrillScreen> {
                                 color: _gold)),
                         const Spacer(),
                         Text('strength ${peg['strength']}',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 9.5,
                                 color: _inkMute)),
@@ -405,11 +414,11 @@ class _DrillScreenState extends State<DrillScreen> {
                     Text(
                       peg['text_ar'] as String,
                       textDirection: TextDirection.rtl,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontFamily: 'Amiri',
                           fontSize: 16,
                           height: 1.9,
-                          color: Color(0xFF6B4708)),
+                          color: _goldDeep),
                     ),
                   ],
                 ),

@@ -11,12 +11,16 @@ import 'package:quran_port/search.dart';
 import 'package:sqlite3/common.dart' as sql show CommonDatabase, Row;
 
 import 'library.dart';
+import 'theme.dart';
 
-const Color _ink = Color(0xFF191C19);
-const Color _inkSoft = Color(0xFF4A5049);
-const Color _inkMute = Color(0xFF767C74);
-const Color _accent = Color(0xFF16584A);
-const Color _wrong = Color(0xFF8C3B2E);
+// The palette in force, read by name; see theme.dart. These are getters
+// rather than constants because the light can change while the app is up.
+Color get _paper => palette.paper;
+Color get _ink => palette.ink;
+Color get _inkSoft => palette.inkSoft;
+Color get _inkMute => palette.inkMute;
+Color get _accent => palette.accent;
+Color get _wrong => palette.wrong;
 
 class Surah {
   Surah(sql.Row r)
@@ -41,8 +45,9 @@ List<Surah> allSurahs(sql.CommonDatabase db) => [
     ];
 
 List<({int juz, int page})> allJuz(sql.CommonDatabase db) => [
-      for (final r in db.select('SELECT juz, MIN(page_start) AS page FROM ayahs '
-          'GROUP BY juz ORDER BY juz'))
+      for (final r
+          in db.select('SELECT juz, MIN(page_start) AS page FROM ayahs '
+              'GROUP BY juz ORDER BY juz'))
         (juz: r['juz'] as int, page: r['page'] as int),
     ];
 
@@ -105,7 +110,7 @@ class _IndexScreenState extends State<IndexScreen> {
     return DefaultTabController(
       length: 4,
       child: Scaffold(
-        backgroundColor: const Color(0xFFFCFCFA),
+        backgroundColor: _paper,
         appBar: AppBar(
           title: TextField(
             controller: _query,
@@ -128,7 +133,7 @@ class _IndexScreenState extends State<IndexScreen> {
           ),
           bottom: _searching
               ? null
-              : const TabBar(
+              : TabBar(
                   labelColor: _accent,
                   indicatorColor: _accent,
                   tabs: [
@@ -155,7 +160,7 @@ class _IndexScreenState extends State<IndexScreen> {
 
   Widget _results() {
     if (_hits.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
           padding: EdgeInsets.all(32),
           child: Text(
@@ -179,13 +184,13 @@ class _IndexScreenState extends State<IndexScreen> {
             textDirection: TextDirection.rtl,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'Amiri', fontSize: 18, height: 1.9, color: _ink),
           ),
           subtitle: Text(
             '${h.surahNameAr}  ${h.verseKey}  ·  page ${h.page}',
             textDirection: TextDirection.rtl,
-            style: const TextStyle(fontSize: 11, color: _inkMute),
+            style: TextStyle(fontSize: 11, color: _inkMute),
           ),
         );
       },
@@ -206,12 +211,12 @@ class _IndexScreenState extends State<IndexScreen> {
                 leading: SizedBox(
                   width: 26,
                   child: Text('${s.number}',
-                      style: const TextStyle(
-                          fontFamily: 'monospace', color: _inkMute)),
+                      style:
+                          TextStyle(fontFamily: 'monospace', color: _inkMute)),
                 ),
                 title: Text(s.nameAr,
                     textDirection: TextDirection.rtl,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontFamily: 'Amiri', fontSize: 19, color: _ink)),
                 subtitle: Text(
                   '${s.ayahCount} āyāt  ·  ${s.place ?? "?"}  ·  '
@@ -266,12 +271,11 @@ class _IndexScreenState extends State<IndexScreen> {
             leading: SizedBox(
               width: 26,
               child: Text('${j.juz}',
-                  style: const TextStyle(
-                      fontFamily: 'monospace', color: _inkMute)),
+                  style: TextStyle(fontFamily: 'monospace', color: _inkMute)),
             ),
             title: Text("Juz' ${j.juz}"),
             trailing: Text('page ${j.page}',
-                style: const TextStyle(fontSize: 11, color: _inkMute)),
+                style: TextStyle(fontSize: 11, color: _inkMute)),
             onTap: () => _go(j.page),
           );
         },
@@ -285,7 +289,7 @@ class _IndexScreenState extends State<IndexScreen> {
   Widget _missed() {
     final missed = widget.library.missed;
     if (missed.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
           padding: EdgeInsets.all(32),
           child: Text(
@@ -303,15 +307,14 @@ class _IndexScreenState extends State<IndexScreen> {
       itemBuilder: (context, i) {
         final m = missed[i];
         return ListTile(
-          leading: const Icon(Icons.error_outline, size: 18, color: _wrong),
+          leading: Icon(Icons.error_outline, size: 18, color: _wrong),
           title: Text(m.surahNameAr,
               textDirection: TextDirection.rtl,
-              style: const TextStyle(
-                  fontFamily: 'Amiri', fontSize: 18, color: _ink)),
+              style: TextStyle(fontFamily: 'Amiri', fontSize: 18, color: _ink)),
           subtitle: Text(
               '${m.verseKey}  ·  page ${m.page}  ·  '
               'missed ${m.count == 1 ? "once" : "${m.count} times"}',
-              style: const TextStyle(fontSize: 11, color: _inkSoft)),
+              style: TextStyle(fontSize: 11, color: _inkSoft)),
           trailing: IconButton(
             tooltip: 'Learnt it',
             icon: const Icon(Icons.check, size: 18),
@@ -329,7 +332,7 @@ class _IndexScreenState extends State<IndexScreen> {
   Widget _bookmarks() {
     final marks = widget.library.bookmarks;
     if (marks.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
           padding: EdgeInsets.all(32),
           child: Text(
@@ -347,13 +350,12 @@ class _IndexScreenState extends State<IndexScreen> {
       itemBuilder: (context, i) {
         final b = marks[i];
         return ListTile(
-          leading: const Icon(Icons.bookmark, size: 18, color: _accent),
+          leading: Icon(Icons.bookmark, size: 18, color: _accent),
           title: Text(b.surahNameAr,
               textDirection: TextDirection.rtl,
-              style: const TextStyle(
-                  fontFamily: 'Amiri', fontSize: 18, color: _ink)),
+              style: TextStyle(fontFamily: 'Amiri', fontSize: 18, color: _ink)),
           subtitle: Text('${b.verseKey}  ·  page ${b.page}',
-              style: const TextStyle(fontSize: 11, color: _inkSoft)),
+              style: TextStyle(fontSize: 11, color: _inkSoft)),
           trailing: IconButton(
             icon: const Icon(Icons.close, size: 16),
             onPressed: () async {

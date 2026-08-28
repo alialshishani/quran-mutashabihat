@@ -7,6 +7,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'theme.dart';
+
 class Bookmark {
   Bookmark({
     required this.verseKey,
@@ -73,6 +75,7 @@ class Library {
   static const String _bookmarksKey = 'read.bookmarks.v1';
   static const String _missedKey = 'recall.missed.v1';
   static const String _forkStopsKey = 'recall.stopAtForks.v1';
+  static const String _themeKey = 'read.theme.v1';
 
   final SharedPreferences _prefs;
   final List<Bookmark> _bookmarks;
@@ -106,6 +109,13 @@ class Library {
     return Library._(prefs, marks, missed);
   }
 
+  /// Which light to read by. Unset means follow the platform, which is what a
+  /// reader who has never opened the drawer expects.
+  ThemeChoice get themeChoice => themeChoiceFrom(_prefs.getString(_themeKey));
+
+  Future<void> setThemeChoice(ThemeChoice choice) =>
+      _prefs.setString(_themeKey, choice.name);
+
   /// Whether recall stops where a shared road turns, as well as at the end of
   /// every ayah. On by default: the turning is the thing worth being asked,
   /// and a reciter who wants the plain cover can say so once.
@@ -121,8 +131,7 @@ class Library {
   List<Bookmark> get bookmarks =>
       [..._bookmarks]..sort((a, b) => b.addedMs.compareTo(a.addedMs));
 
-  bool has(String verseKey) =>
-      _bookmarks.any((b) => b.verseKey == verseKey);
+  bool has(String verseKey) => _bookmarks.any((b) => b.verseKey == verseKey);
 
   Future<void> toggle(Bookmark mark) async {
     final at = _bookmarks.indexWhere((b) => b.verseKey == mark.verseKey);
@@ -140,14 +149,13 @@ class Library {
   /// The missed, worst first: most often missed, and among equals the most
   /// recent. What to go back to is the top of this list.
   List<Miss> get missed => [..._missed]..sort((a, b) {
-        final byCount = b.count.compareTo(a.count);
-        return byCount != 0 ? byCount : b.lastMs.compareTo(a.lastMs);
-      });
+      final byCount = b.count.compareTo(a.count);
+      return byCount != 0 ? byCount : b.lastMs.compareTo(a.lastMs);
+    });
 
   int get missCount => _missed.length;
 
-  bool missedHas(String verseKey) =>
-      _missed.any((m) => m.verseKey == verseKey);
+  bool missedHas(String verseKey) => _missed.any((m) => m.verseKey == verseKey);
 
   /// Mark an ayah missed, or mark it missed again.
   Future<void> recordMiss({

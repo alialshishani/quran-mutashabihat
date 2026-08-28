@@ -10,34 +10,44 @@
 import 'package:flutter/material.dart';
 import 'package:quran_port/forks.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
+import 'theme.dart';
 
-const Color _ink = Color(0xFF191C19);
-const Color _inkSoft = Color(0xFF4A5049);
-const Color _inkMute = Color(0xFF767C74);
-const Color _accent = Color(0xFF16584A);
-const Color _gold = Color(0xFF8A6C22);
+// The palette in force, read by name; see theme.dart. These are getters
+// rather than constants because the light can change while the app is up.
+Color get _raised => palette.raised;
+Color get _paper => palette.paper;
+Color get _ink => palette.ink;
+Color get _inkSoft => palette.inkSoft;
+Color get _inkMute => palette.inkMute;
+Color get _accent => palette.accent;
+Color get _accentSoft => palette.accentSoft;
+Color get _gold => palette.gold;
+Color get _goldSoft => palette.goldSoft;
+Color get _surface => palette.surface;
+Color get _surfaceAlt => palette.surfaceAlt;
+Color get _wrongSofter => palette.wrongSofter;
 
 /// Cheapest to hold first, which is the order `sort: useful` puts them in.
-const Map<String, ({String label, String gloss, Color tint})> kShapeInfo = {
+final Map<String, ({String label, String gloss, Color tint})> kShapeInfo = {
   'all_but_one': (
     label: 'all but one',
     gloss: 'every position takes the same way out except one',
-    tint: Color(0xFFE4EFEA),
+    tint: _accentSoft,
   ),
   'two_way': (
     label: 'two ways',
     gloss: 'the positions split two ways',
-    tint: Color(0xFFFBEFD2),
+    tint: _goldSoft,
   ),
   'many': (
     label: 'many ways',
     gloss: 'a peg is needed for each position',
-    tint: Color(0xFFF3E4E0),
+    tint: _wrongSofter,
   ),
   'no_fork': (
     label: 'no fork',
     gloss: 'the positions never part; they are told apart by what precedes',
-    tint: Color(0xFFF3F4F0),
+    tint: _surface,
   ),
 };
 
@@ -97,7 +107,7 @@ class _ForksScreenState extends State<ForksScreen> {
         ((doc?['phrases'] as List?) ?? const []).cast<Map<String, Object?>>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFCFCFA),
+      backgroundColor: _paper,
       appBar: AppBar(
         leading: IconButton(
           tooltip: 'Menu',
@@ -133,7 +143,7 @@ class _ForksScreenState extends State<ForksScreen> {
                 child: Row(
                   children: [
                     Text('$total forks',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 11,
                             color: _inkMute)),
@@ -141,14 +151,16 @@ class _ForksScreenState extends State<ForksScreen> {
                     DropdownButton<String>(
                       value: _sort,
                       underline: const SizedBox.shrink(),
-                      style: const TextStyle(fontSize: 12, color: _ink),
+                      style: TextStyle(fontSize: 12, color: _ink),
                       items: const [
-                        DropdownMenuItem(value: 'useful', child: Text('useful')),
+                        DropdownMenuItem(
+                            value: 'useful', child: Text('useful')),
                         DropdownMenuItem(
                             value: 'positions', child: Text('positions')),
                         DropdownMenuItem(
                             value: 'branches', child: Text('branches')),
-                        DropdownMenuItem(value: 'surahs', child: Text('sūrahs')),
+                        DropdownMenuItem(
+                            value: 'surahs', child: Text('sūrahs')),
                       ],
                       onChanged: (v) {
                         if (v == null) return;
@@ -205,7 +217,7 @@ class _ForksScreenState extends State<ForksScreen> {
               child: const Text('previous'),
             ),
             Text('${_offset + 1}–${(_offset + _pageSize).clamp(0, total)}',
-                style: const TextStyle(
+                style: TextStyle(
                     fontFamily: 'monospace', fontSize: 11, color: _inkMute)),
             TextButton(
               onPressed: _offset + _pageSize >= total
@@ -232,15 +244,14 @@ class _ForkCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final shape = fork['shape'] as String;
     final info = kShapeInfo[shape];
-    final branches =
-        (fork['branches'] as List).cast<Map<String, Object?>>();
+    final branches = (fork['branches'] as List).cast<Map<String, Object?>>();
     final tail = fork['road_tail_ar'] as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFECEEE9)),
+        color: _raised,
+        border: Border.all(color: _surfaceAlt),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(14),
@@ -252,11 +263,11 @@ class _ForkCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: info?.tint ?? const Color(0xFFF3F4F0),
+                  color: info?.tint ?? _surface,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(info?.label ?? shape,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
                         color: _gold)),
@@ -266,7 +277,7 @@ class _ForkCard extends StatelessWidget {
                 '${fork['position_count']} places  ·  '
                 '${fork['branch_count']} ways  ·  '
                 '${fork['surah_count']} sūrahs',
-                style: const TextStyle(
+                style: TextStyle(
                     fontFamily: 'monospace', fontSize: 10, color: _inkMute),
               ),
             ],
@@ -279,13 +290,16 @@ class _ForkCard extends StatelessWidget {
             TextSpan(children: [
               TextSpan(
                 text: fork['phrase_ar'] as String,
-                style: const TextStyle(
-                    fontFamily: 'Amiri', fontSize: 20, height: 1.9, color: _ink),
+                style: TextStyle(
+                    fontFamily: 'Amiri',
+                    fontSize: 20,
+                    height: 1.9,
+                    color: _ink),
               ),
               if (tail != null)
                 TextSpan(
                   text: ' $tail',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'Amiri',
                       fontSize: 20,
                       height: 1.9,
@@ -297,8 +311,7 @@ class _ForkCard extends StatelessWidget {
 
           if (info != null) ...[
             const SizedBox(height: 6),
-            Text(info.gloss,
-                style: const TextStyle(fontSize: 11, color: _inkMute)),
+            Text(info.gloss, style: TextStyle(fontSize: 11, color: _inkMute)),
           ],
           const Divider(height: 20),
 
@@ -348,7 +361,7 @@ class _Branch extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text('${branch['position_count']}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'monospace', fontSize: 11, color: _inkMute)),
             ],
           ),

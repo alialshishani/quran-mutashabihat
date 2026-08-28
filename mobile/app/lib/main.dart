@@ -24,6 +24,19 @@ import 'forks_screen.dart';
 import 'index_screen.dart';
 import 'library.dart';
 import 'panel.dart';
+import 'theme.dart';
+
+// The palette in force, read by name; see theme.dart. These are getters
+// rather than constants because the light can change while the app is up.
+Color get _paper => palette.paper;
+Color get _card => palette.card;
+Color get _ink => palette.ink;
+Color get _inkMute => palette.inkMute;
+Color get _gold => palette.gold;
+Color get _goldBright => palette.goldBright;
+Color get _shadow => palette.shadow;
+Color get _selection => palette.selection;
+Color get _covered => palette.covered;
 
 const int kFallbackPage = 89;
 
@@ -36,10 +49,6 @@ const String kDrawnFace = 'Amiri';
 /// measure, and so off the size of the letters -- 14 is about the least that
 /// still reads as a margin rather than a crop.
 const double kEdgeMargin = 14;
-
-const Color _ink = Color(0xFF191C19);
-const Color _inkMute = Color(0xFF767C74);
-const Color _gold = Color(0xFF8A6C22);
 
 /// The stylesheet's .qline line-height. The glyphs ask for 1.531em, so they
 /// overflow their line box by design and must not be clipped.
@@ -64,43 +73,102 @@ Future<void> main() async {
   // The sheet wants every pixel: the type size is derived from the width of the
   // text block, so chrome does not merely crowd the page, it shrinks the type.
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  runApp(const MushafApp());
+  // The library is the small store -- where you were, what you marked, what you
+  // missed, and which light you read by. The last of those is wanted before the
+  // first frame, so it is opened here rather than with the corpus.
+  final library = await Library.open();
+  runApp(MushafApp(library: library));
 }
 
-class MushafApp extends StatelessWidget {
-  const MushafApp({super.key});
+class MushafApp extends StatefulWidget {
+  const MushafApp({super.key, required this.library});
+
+  final Library library;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'Mushaf',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF16584A)),
-          scaffoldBackgroundColor: const Color(0xFFFCFCFA),
-        ),
-        home: const Loader(),
-      );
+  State<MushafApp> createState() => _MushafAppState();
+}
+
+class _MushafAppState extends State<MushafApp> with WidgetsBindingObserver {
+  late ThemeChoice _choice = widget.library.themeChoice;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// The platform's light changed under a reader who left it to follow.
+  @override
+  void didChangePlatformBrightness() {
+    if (_choice == ThemeChoice.system) setState(() {});
+  }
+
+  Future<void> _setChoice(ThemeChoice choice) async {
+    setState(() => _choice = choice);
+    await widget.library.setThemeChoice(choice);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final system =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    final dark = switch (_choice) {
+      ThemeChoice.light => false,
+      ThemeChoice.dark => true,
+      ThemeChoice.system => system == Brightness.dark,
+    };
+    // Set before the tree under it is built, so every `_ink` below reads the
+    // light now in force rather than the one before it.
+    palette = dark ? kDark : kLight;
+
+    return MaterialApp(
+      title: 'Mushaf',
+      debugShowCheckedModeBanner: false,
+      theme: themeFor(kLight),
+      darkTheme: themeFor(kDark),
+      themeMode: switch (_choice) {
+        ThemeChoice.light => ThemeMode.light,
+        ThemeChoice.dark => ThemeMode.dark,
+        ThemeChoice.system => ThemeMode.system,
+      },
+      home: Loader(
+        library: widget.library,
+        choice: _choice,
+        onChoice: _setChoice,
+      ),
+    );
+  }
 }
 
 class Loader extends StatefulWidget {
-  const Loader({super.key});
+  const Loader({
+    super.key,
+    required this.library,
+    required this.choice,
+    required this.onChoice,
+  });
+
+  final Library library;
+  final ThemeChoice choice;
+  final ValueChanged<ThemeChoice> onChoice;
 
   @override
   State<Loader> createState() => _LoaderState();
 }
 
 class _LoaderState extends State<Loader> {
-  late final Future<({CommonDatabase db, Library library})> _db = _open();
-
-  Future<({CommonDatabase db, Library library})> _open() async {
-    final db = await openCorpus();
-    final library = await Library.open();
-    return (db: db, library: library);
-  }
+  late final Future<CommonDatabase> _db = openCorpus();
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<({CommonDatabase db, Library library})>(
+    return FutureBuilder<CommonDatabase>(
       future: _db,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -118,12 +186,16 @@ class _LoaderState extends State<Loader> {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        return HomeShell(db: snap.data!.db, library: snap.data!.library);
+        return HomeShell(
+          db: snap.data!,
+          library: widget.library,
+          choice: widget.choice,
+          onChoice: widget.onChoice,
+        );
       },
     );
   }
 }
-
 
 /// Four peers, not one screen with the rest hidden behind an icon.
 ///
@@ -134,10 +206,20 @@ class _LoaderState extends State<Loader> {
 /// type is set at `width / em`, so a bar at the bottom costs no letter size,
 /// unlike a margin at the side.
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, required this.db, required this.library});
+  const HomeShell({
+    super.key,
+    required this.db,
+    required this.library,
+    required this.choice,
+    required this.onChoice,
+  });
 
   final CommonDatabase db;
   final Library library;
+
+  /// Which light the reader has asked for, and how to ask for another.
+  final ThemeChoice choice;
+  final ValueChanged<ThemeChoice> onChoice;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -207,7 +289,7 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       key: _scaffold,
-      backgroundColor: const Color(0xFFFCFCFA),
+      backgroundColor: _paper,
       drawer: _menu(),
       // Over the muṣḥaf the bar is laid on the page, not under it. Given a
       // strip of the Scaffold it would take that height from the block, and
@@ -238,10 +320,8 @@ class _HomeShellState extends State<HomeShell> {
                 stopAtForks: _stopAtForks,
                 recall: true,
               ),
-              ForksScreen(
-                  db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
-              DrillScreen(
-                  db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
+              ForksScreen(db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
+              DrillScreen(db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
             ],
           ),
           if (onSheet && _chrome)
@@ -263,7 +343,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget _menu() {
     final page = _sheet(_tab)?.currentState?.page;
     return Drawer(
-      backgroundColor: const Color(0xFFFCFCFA),
+      backgroundColor: _paper,
       child: SafeArea(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -273,16 +353,14 @@ class _HomeShellState extends State<HomeShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Muṣḥaf',
+                  Text('Muṣḥaf',
                       style: TextStyle(
                           fontFamily: 'Amiri', fontSize: 26, color: _ink)),
                   const SizedBox(height: 2),
                   Text(
                     page == null ? 'mutashābihāt' : 'page $page of 604',
-                    style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        color: _inkMute),
+                    style: TextStyle(
+                        fontFamily: 'monospace', fontSize: 11, color: _inkMute),
                   ),
                 ],
               ),
@@ -298,7 +376,7 @@ class _HomeShellState extends State<HomeShell> {
               },
             ),
             const Divider(height: 1),
-            const Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
               child: Text('RECALL',
                   style: TextStyle(
@@ -315,6 +393,38 @@ class _HomeShellState extends State<HomeShell> {
                   'Hold back the word a shared road turns on, instead of '
                   'covering the āyah whole.'),
             ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+              child: Text('LIGHT',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      letterSpacing: 1.2,
+                      color: _inkMute)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+              child: SegmentedButton<ThemeChoice>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(
+                      value: ThemeChoice.light,
+                      icon: Icon(Icons.light_mode_outlined),
+                      label: Text('Day')),
+                  ButtonSegment(
+                      value: ThemeChoice.dark,
+                      icon: Icon(Icons.dark_mode_outlined),
+                      label: Text('Night')),
+                  ButtonSegment(
+                      value: ThemeChoice.system,
+                      icon: Icon(Icons.brightness_auto_outlined),
+                      label: Text('Auto')),
+                ],
+                selected: {widget.choice},
+                onSelectionChanged: (s) => widget.onChoice(s.first),
+              ),
+            ),
           ],
         ),
       ),
@@ -328,8 +438,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget _bar({required bool floating}) {
     final bar = NavigationBar(
       height: 62,
-      backgroundColor:
-          floating ? Colors.white.withValues(alpha: 0.96) : null,
+      backgroundColor: floating ? _card : null,
       selectedIndex: _tab,
       onDestinationSelected: _selectTab,
       destinations: const [
@@ -358,8 +467,8 @@ class _HomeShellState extends State<HomeShell> {
 
     if (!floating) return bar;
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 12)],
+      decoration: BoxDecoration(
+        boxShadow: [BoxShadow(color: _shadow, blurRadius: 12)],
       ),
       child: bar,
     );
@@ -403,6 +512,7 @@ class MushafView extends StatefulWidget {
   final Library library;
   final bool chrome;
   final VoidCallback onToggleChrome;
+
   /// The way to everything that is not the page: the lists, the search and the
   /// settings. One button, one drawer, rather than a row of icons over the
   /// muṣḥaf -- vertical chrome is free here, but attention is not.
@@ -432,7 +542,6 @@ class MushafViewState extends State<MushafView> {
   // so two views of the same page share one registration.
   static final Set<int> _fontsLoaded = {};
   final FocusNode _focus = FocusNode();
-
 
   // A page turn is async -- it awaits the page's font -- so `_page` still holds
   // the old value while one is in flight. Without this guard a second turn
@@ -605,15 +714,19 @@ class MushafViewState extends State<MushafView> {
   Widget build(BuildContext context) {
     final doc = _doc;
     return Scaffold(
-      backgroundColor: const Color(0xFFFCFCFA),
+      backgroundColor: _paper,
       body: doc == null
           ? const Center(child: CircularProgressIndicator())
           : KeyboardListener(
               focusNode: widget.active ? (_focus..requestFocus()) : _focus,
               onKeyEvent: (e) {
                 if (e is! KeyDownEvent) return;
-                if (e.logicalKey == LogicalKeyboardKey.arrowLeft) _go(_page + 1);
-                if (e.logicalKey == LogicalKeyboardKey.arrowRight) _go(_page - 1);
+                if (e.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                  _go(_page + 1);
+                }
+                if (e.logicalKey == LogicalKeyboardKey.arrowRight) {
+                  _go(_page - 1);
+                }
                 if (widget.recall && e.logicalKey == LogicalKeyboardKey.space) {
                   _revealNext();
                 }
@@ -707,8 +820,8 @@ class MushafViewState extends State<MushafView> {
   /// across all 604 pages. Everything that is not the page itself.
   Widget _controls() {
     final doc = _doc;
-    final surahs = ((doc?['surahs'] as List?) ?? const [])
-        .cast<Map<String, Object?>>();
+    final surahs =
+        ((doc?['surahs'] as List?) ?? const []).cast<Map<String, Object?>>();
     final juz = doc?['juz'];
     final marked = _selected != null && widget.library.has(_selected!);
 
@@ -716,107 +829,116 @@ class MushafViewState extends State<MushafView> {
       left: 0,
       right: 0,
       top: 0,
-      child: SafeArea(
-        child: Container(
-          margin: const EdgeInsets.all(8),
-          padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [
-              BoxShadow(color: Color(0x22000000), blurRadius: 12),
-            ],
+      // Hung from the top edge rather than floated below it: the colour runs
+      // to the physical top of the screen and only the foot of it is rounded,
+      // so it reads as the head of the page and not as a card adrift on it.
+      // The SafeArea is inside, so the inset holds the writing off the cutout
+      // without leaving a strip of page above the bar.
+      child: Container(
+        decoration: BoxDecoration(
+          color: _card,
+          borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(14),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Menu',
-                    onPressed: widget.onOpenMenu,
-                    icon: const Icon(Icons.menu),
-                  ),
-                  // Where you are, which the page itself cannot say.
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          surahs.isEmpty
-                              ? 'Page $_page'
-                              : surahs
-                                  .map((x) => x['name_ar'] as String)
-                                  .join('  ·  '),
-                          textDirection: TextDirection.rtl,
+          boxShadow: [
+            BoxShadow(color: _shadow, blurRadius: 12),
+          ],
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Menu',
+                      onPressed: widget.onOpenMenu,
+                      icon: const Icon(Icons.menu),
+                    ),
+                    // Where you are, which the page itself cannot say.
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Text(
+                            surahs.isEmpty
+                                ? 'Page $_page'
+                                : surahs
+                                    .map((x) => x['name_ar'] as String)
+                                    .join('  ·  '),
+                            textDirection: TextDirection.rtl,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontFamily: 'Amiri', fontSize: 17, color: _ink),
+                          ),
+                          Text(
+                            'page $_page'
+                            '${juz == null ? "" : "   ·   juz $juz"}'
+                            '${_selected == null ? "" : "   ·   $_selected"}',
+                            style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                color: _inkMute),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: _selected == null
+                          ? 'Select an āyah to bookmark it'
+                          : (marked ? 'Remove bookmark' : 'Bookmark this āyah'),
+                      onPressed: _selected == null ? null : _toggleBookmark,
+                      icon:
+                          Icon(marked ? Icons.bookmark : Icons.bookmark_border),
+                      color: marked ? _gold : null,
+                    ),
+                  ],
+                ),
+                // The slider that used to sit here is gone. It spanned 604
+                // pages in a thumb's width -- a page either side of the one you
+                // wanted, every time -- and the index has a page field that
+                // lands on the page you asked for. Two ways to do one thing, and
+                // this was the worse one.
+                // In recall the card also says how much of the page is still
+                // held back, and offers the two ways out of a run: give up and
+                // read it, or cover it again and take the page from the top.
+                if (widget.recall)
+                  Row(
+                    children: [
+                      const SizedBox(width: 12),
+                      // The count gives way, not the buttons. It is the part
+                      // that grows -- the missed tally appears the first time a
+                      // page goes badly -- and the part you can do without.
+                      Expanded(
+                        child: Text(
+                          '$_given of ${_stops.length} given'
+                          '${widget.library.missCount == 0 ? "" : "   ·   ${widget.library.missCount} missed"}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontFamily: 'Amiri', fontSize: 17, color: _ink),
-                        ),
-                        Text(
-                          'page $_page'
-                          '${juz == null ? "" : "   ·   juz $juz"}'
-                          '${_selected == null ? "" : "   ·   $_selected"}',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 10,
                               color: _inkMute),
                         ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: _selected == null
-                        ? 'Select an āyah to bookmark it'
-                        : (marked ? 'Remove bookmark' : 'Bookmark this āyah'),
-                    onPressed: _selected == null ? null : _toggleBookmark,
-                    icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
-                    color: marked ? _gold : null,
-                  ),
-                ],
-              ),
-              // The slider that used to sit here is gone. It spanned 604
-              // pages in a thumb's width -- a page either side of the one you
-              // wanted, every time -- and the index has a page field that
-              // lands on the page you asked for. Two ways to do one thing, and
-              // this was the worse one.
-              // In recall the card also says how much of the page is still
-              // held back, and offers the two ways out of a run: give up and
-              // read it, or cover it again and take the page from the top.
-              if (widget.recall)
-                Row(
-                  children: [
-                    const SizedBox(width: 12),
-                    // The count gives way, not the buttons. It is the part
-                    // that grows -- the missed tally appears the first time a
-                    // page goes badly -- and the part you can do without.
-                    Expanded(
-                      child: Text(
-                        '$_given of ${_stops.length} given'
-                        '${widget.library.missCount == 0 ? "" : "   ·   ${widget.library.missCount} missed"}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                            color: _inkMute),
                       ),
-                    ),
-                    TextButton(
-                      style: _rowButton,
-                      onPressed:
-                          _given >= _stops.length ? null : _revealAll,
-                      child: const Text('Show all'),
-                    ),
-                    TextButton(
-                      style: _rowButton,
-                      onPressed: _frontier == 0 ? null : _hideAll,
-                      child: const Text('Cover again'),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                ),
-            ],
+                      TextButton(
+                        style: _rowButton,
+                        onPressed: _given >= _stops.length ? null : _revealAll,
+                        child: const Text('Show all'),
+                      ),
+                      TextButton(
+                        style: _rowButton,
+                        onPressed: _frontier == 0 ? null : _hideAll,
+                        child: const Text('Cover again'),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -842,9 +964,7 @@ class MushafViewState extends State<MushafView> {
     await widget.library.toggle(Bookmark(
       verseKey: key,
       page: _page,
-      surahNameAr: match.isEmpty
-          ? ''
-          : match.first['surah_name_ar'] as String,
+      surahNameAr: match.isEmpty ? '' : match.first['surah_name_ar'] as String,
       addedMs: DateTime.now().millisecondsSinceEpoch,
     ));
     if (mounted) setState(() {});
@@ -932,8 +1052,7 @@ class MushafViewState extends State<MushafView> {
     await widget.library.recordMiss(
       verseKey: key,
       page: _page,
-      surahNameAr:
-          match.isEmpty ? '' : match.first['surah_name_ar'] as String,
+      surahNameAr: match.isEmpty ? '' : match.first['surah_name_ar'] as String,
     );
     if (!mounted) return;
     HapticFeedback.mediumImpact();
@@ -978,7 +1097,7 @@ class MushafViewState extends State<MushafView> {
           alignment: Alignment.center,
           padding: EdgeInsets.symmetric(horizontal: size * 0.3),
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFD8A93C), width: 1),
+            border: Border.all(color: _goldBright, width: 1),
             borderRadius: BorderRadius.circular(2),
           ),
           child: FittedBox(
@@ -988,7 +1107,7 @@ class MushafViewState extends State<MushafView> {
               style: TextStyle(
                 fontFamily: kDrawnFace,
                 fontSize: size * 0.40,
-                color: const Color(0xFF8A6C22),
+                color: _gold,
               ),
             ),
           ),
@@ -1006,7 +1125,7 @@ class MushafViewState extends State<MushafView> {
             style: TextStyle(
               fontFamily: kDrawnFace,
               fontSize: size * 0.5,
-              color: const Color(0xFF8A6C22),
+              color: _gold,
             ),
           ),
         ),
@@ -1076,21 +1195,16 @@ class MushafViewState extends State<MushafView> {
         // The stylesheet's .qline line-height. The glyphs ask for 1.531em, so
         // they overflow their line box by design and must not be clipped.
         height: kLineHeight,
-        color: hidden
-            ? Colors.transparent
-            : (t.isMarker
-                ? const Color(0xFF8A6C22)
-                : const Color(0xFF191C19)),
+        color: hidden ? Colors.transparent : (t.isMarker ? _gold : _ink),
         // The underline marks a mutashabih phrase. Drawn under covered words it
         // would point straight at the thing being recalled, so it waits.
         decoration: t.marked && !hidden
             ? TextDecoration.underline
             : TextDecoration.none,
-        decorationColor: const Color(0xFFD8A93C),
+        decorationColor: _goldBright,
         decorationThickness: 0.6,
-        backgroundColor: hidden
-            ? const Color(0x0F191C19)
-            : (_selected == t.verseKey ? const Color(0x33D8A93C) : null),
+        backgroundColor:
+            hidden ? _covered : (_selected == t.verseKey ? _selection : null),
       ),
       recognizer: recognizer,
     );

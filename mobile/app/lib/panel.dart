@@ -8,12 +8,23 @@
 // as `pipeline.pegs` wrote them; nothing is composed in the app.
 
 import 'package:flutter/material.dart';
+import 'theme.dart';
 
-const Color _gold = Color(0xFF8A6C22);
-const Color _ink = Color(0xFF191C19);
-const Color _inkSoft = Color(0xFF4A5049);
-const Color _inkMute = Color(0xFF767C74);
-const Color _accent = Color(0xFF16584A);
+// The palette in force, read by name; see theme.dart. These are getters
+// rather than constants because the light can change while the app is up.
+Color get _raised => palette.raised;
+Color get _paper => palette.paper;
+Color get _ink => palette.ink;
+Color get _inkSoft => palette.inkSoft;
+Color get _inkMute => palette.inkMute;
+Color get _accent => palette.accent;
+Color get _gold => palette.gold;
+Color get _goldBright => palette.goldBright;
+Color get _goldSoft => palette.goldSoft;
+Color get _goldDeep => palette.goldDeep;
+Color get _surface => palette.surface;
+Color get _surfaceAlt => palette.surfaceAlt;
+Color get _rule => palette.line;
 
 class MutashabihatPanel extends StatelessWidget {
   const MutashabihatPanel({
@@ -45,8 +56,8 @@ class MutashabihatPanel extends StatelessWidget {
       maxChildSize: 0.92,
       expand: false,
       builder: (context, controller) => DecoratedBox(
-        decoration: const BoxDecoration(
-          color: Color(0xFFFCFCFA),
+        decoration: BoxDecoration(
+          color: _paper,
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
         child: ListView(
@@ -59,7 +70,7 @@ class MutashabihatPanel extends StatelessWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDFE2DC),
+                  color: _rule,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -67,7 +78,7 @@ class MutashabihatPanel extends StatelessWidget {
             Row(
               children: [
                 Text(verseKey,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 13,
                         color: _inkMute)),
@@ -77,10 +88,8 @@ class MutashabihatPanel extends StatelessWidget {
                       ? 'no official mutashābihāt'
                       : '${matches.length} official '
                           '${matches.length == 1 ? "phrase" : "phrases"}',
-                  style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: _ink),
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500, color: _ink),
                 ),
               ],
             ),
@@ -94,23 +103,22 @@ class MutashabihatPanel extends StatelessWidget {
                           'and nothing repeated was detected in it.'
                       : 'No phrase from the curated list. What pass A detected '
                           'is below.',
-                  style: const TextStyle(
-                      fontSize: 13, color: _inkSoft, height: 1.5),
+                  style: TextStyle(fontSize: 13, color: _inkSoft, height: 1.5),
                 ),
               ),
             for (final m in matches) _Phrase(match: m, onJump: onJump),
             if (detected.isNotEmpty)
               Theme(
-                data:
-                    Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   tilePadding: EdgeInsets.zero,
                   title: Text(
                     '${detected.length} detected '
                     '${detected.length == 1 ? "repeat" : "repeats"}',
-                    style: const TextStyle(fontSize: 13, color: _accent),
+                    style: TextStyle(fontSize: 13, color: _accent),
                   ),
-                  subtitle: const Text(
+                  subtitle: Text(
                     "this project's own pass-A detection, not the curated list",
                     style: TextStyle(fontSize: 11, color: _inkMute),
                   ),
@@ -141,8 +149,8 @@ class _Phrase extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFECEEE9)),
+        color: _raised,
+        border: Border.all(color: _surfaceAlt),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(14),
@@ -153,7 +161,7 @@ class _Phrase extends StatelessWidget {
           Text(
             match['text_ar'] as String,
             textDirection: TextDirection.rtl,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'Amiri', fontSize: 21, height: 1.9, color: _ink),
           ),
           const SizedBox(height: 8),
@@ -161,7 +169,7 @@ class _Phrase extends StatelessWidget {
             '${match['set_count']} places  ·  '
             '${match['surah_count']} sūrahs  ·  '
             '${match['span_len']} words',
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'monospace', fontSize: 11, color: _inkMute),
           ),
           const Divider(height: 22),
@@ -171,16 +179,16 @@ class _Phrase extends StatelessWidget {
 
           if (elsewhere.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text('the other ${elsewhere.length} '
+            Text(
+                'the other ${elsewhere.length} '
                 '${elsewhere.length == 1 ? "place" : "places"}',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 10,
                     letterSpacing: 1.1,
                     color: _inkMute,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
-            for (final e in elsewhere)
-              _Sibling(position: e, onJump: onJump),
+            for (final e in elsewhere) _Sibling(position: e, onJump: onJump),
           ],
         ],
       ),
@@ -198,7 +206,7 @@ class _Peg extends StatelessWidget {
   Widget build(BuildContext context) {
     final peg = position['peg'] as Map<String, Object?>?;
     if (peg == null) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 4),
         child: Text('no ḍābiṭ verified for this position',
             style: TextStyle(fontSize: 12, color: _inkMute)),
@@ -210,11 +218,9 @@ class _Peg extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: isHere ? const Color(0xFFFBEFD2) : const Color(0xFFF3F4F0),
+        color: isHere ? _goldSoft : _surface,
         borderRadius: BorderRadius.circular(6),
-        border: isHere
-            ? Border.all(color: const Color(0xFFD8A93C), width: 0.8)
-            : null,
+        border: isHere ? Border.all(color: _goldBright, width: 0.8) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,7 +228,7 @@ class _Peg extends StatelessWidget {
           Row(
             children: [
               Text(peg['kind'] as String,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 9.5,
                       letterSpacing: 0.8,
@@ -230,7 +236,7 @@ class _Peg extends StatelessWidget {
                       fontWeight: FontWeight.w700)),
               const Spacer(),
               Text('strength ${peg['strength']}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'monospace', fontSize: 9.5, color: _inkMute)),
             ],
           ),
@@ -243,7 +249,7 @@ class _Peg extends StatelessWidget {
               fontFamily: 'Amiri',
               fontSize: isHere ? 16 : 14,
               height: 1.85,
-              color: isHere ? const Color(0xFF6B4708) : _inkSoft,
+              color: isHere ? _goldDeep : _inkSoft,
             ),
           ),
         ],
@@ -275,20 +281,20 @@ class _Sibling extends StatelessWidget {
               children: [
                 Text(position['surah_name_ar'] as String,
                     textDirection: TextDirection.rtl,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontFamily: 'Amiri', fontSize: 15, color: _ink)),
                 const SizedBox(width: 8),
                 Text(key,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 11,
                         color: _inkMute)),
                 const Spacer(),
                 if (page != null)
                   Text('page $page  ›',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 11,
-                          color: Color(0xFF16584A),
+                          color: _accent,
                           fontWeight: FontWeight.w600)),
               ],
             ),
@@ -300,7 +306,6 @@ class _Sibling extends StatelessWidget {
     );
   }
 }
-
 
 /// One span pass A found repeating, with its dawabit.
 class _Detected extends StatelessWidget {
@@ -318,7 +323,7 @@ class _Detected extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F0),
+        color: _surface,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
@@ -327,7 +332,7 @@ class _Detected extends StatelessWidget {
           Text(
             match['span_text'] as String,
             textDirection: TextDirection.rtl,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'Amiri', fontSize: 18, height: 1.85, color: _ink),
           ),
           const SizedBox(height: 6),
@@ -335,7 +340,7 @@ class _Detected extends StatelessWidget {
             '${match['occurrence_count']} occurrences  \u00b7  '
             '${match['span_len']} words'
             '${match['cross_surah'] == true ? "  \u00b7  crosses a surah" : ""}',
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'monospace', fontSize: 10, color: _inkMute),
           ),
           for (final d in dawabit)
@@ -347,7 +352,7 @@ class _Detected extends StatelessWidget {
                   Row(
                     children: [
                       Text(d['rule_code'] as String,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 9.5,
                               letterSpacing: 0.8,
@@ -355,10 +360,10 @@ class _Detected extends StatelessWidget {
                               fontWeight: FontWeight.w700)),
                       const SizedBox(width: 8),
                       if (d['verified'] == true)
-                        const Icon(Icons.check, size: 12, color: _accent),
+                        Icon(Icons.check, size: 12, color: _accent),
                       const Spacer(),
                       Text('strength ${d['strength']}',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 9.5,
                               color: _inkMute)),
@@ -369,7 +374,7 @@ class _Detected extends StatelessWidget {
                   Text(
                     d['text_ar'] as String,
                     textDirection: TextDirection.rtl,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontFamily: 'Amiri',
                         fontSize: 15,
                         height: 1.8,
