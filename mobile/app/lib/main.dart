@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:quran_port/forks.dart' show roadEnds;
 import 'package:quran_port/lookup.dart' as ql;
 import 'package:quran_port/mushaf.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
@@ -156,6 +157,22 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  /// The muṣḥaf and recall are one page read two ways, so moving in either
+  /// moves the other: you cover the page you were just reading, and you come
+  /// back to the page you were just tested on. One place between them, and one
+  /// record of where that place is.
+  GlobalKey<MushafViewState>? _sheet(int tab) =>
+      tab == 0 ? _mushaf : (tab == 1 ? _recall : null);
+
+  void _selectTab(int i) {
+    final page = _sheet(_tab)?.currentState?.page;
+    setState(() => _tab = i);
+    final to = _sheet(i);
+    if (to == null || page == null) return;
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => to.currentState?.goTo(page));
+  }
+
   void _openIndex() {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => IndexScreen(
@@ -236,7 +253,7 @@ class _HomeShellState extends State<HomeShell> {
       backgroundColor:
           floating ? Colors.white.withValues(alpha: 0.96) : null,
       selectedIndex: _tab,
-      onDestinationSelected: (i) => setState(() => _tab = i),
+      onDestinationSelected: _selectTab,
       destinations: const [
         NavigationDestination(
           icon: Icon(Icons.menu_book_outlined),
@@ -342,8 +359,11 @@ class MushafViewState extends State<MushafView> {
   double? _em;
   String? _selected;
 
-  /// In recall, the ayat on this page whose ink has been let through.
-  final Set<String> _revealed = {};
+  /// In recall, the word this page is revealed through, and the points at
+  /// which revealing stops. Zero is a page still covered.
+  int _frontier = 0;
+  List<int> _stops = const [];
+  Map<int, String> _keyOf = const {};
 
   @override
   void initState() {
@@ -354,10 +374,16 @@ class MushafViewState extends State<MushafView> {
     _go(_page);
   }
 
+  /// The page this sheet is on, so the shell can put the other sheet on it.
+  int get page => _page;
+
   /// Turn to a page and select an āyah there. Called by the shell, so the forks
-  /// screen, the drill and the index can all send the reader to a place.
+  /// screen, the drill and the index can all send the reader to a place -- and
+  /// so the two sheets can be kept on one page between them. Already being
+  /// there is not a turn: reloading would cover recall again, and a reciter who
+  /// glanced at the muṣḥaf has not asked for that.
   Future<void> goTo(int page, [String? verseKey]) async {
-    await _go(page);
+    if (page != _page) await _go(page);
     if (mounted && verseKey != null) {
       setState(() => _selected = verseKey);
     }
@@ -409,10 +435,10 @@ class MushafViewState extends State<MushafView> {
       _em = null;
       _selected = null;
       _recognizers.clear();
-      // A page arrives covered. Turning to it is the point at which a reciter
-      // has nothing yet.
-      _revealed.clear();
     });
+    // A page arrives covered: turning to it is the point at which a reciter
+    // has nothing yet.
+    if (widget.recall) _cut();
     unawaited(widget.library.setLastPage(page));
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
   }
@@ -511,6 +537,10 @@ class MushafViewState extends State<MushafView> {
                       // On the muṣḥaf the tap belongs to the words, which open
                       // the panel, so the sheet does not take it.
                       onTap: widget.recall ? _revealNext : null,
+                      // Held, not double-tapped: a double tap would put a
+                      // wait on every reveal while the second tap was listened
+                      // for, and the reveal is the thing done most.
+                      onLongPress: widget.recall ? _markMissed : null,
                       // Swiped up like a blind: the bar comes from the foot of
                       // the screen, so it is drawn up and pushed back down.
                       onVerticalDragEnd: (d) {
@@ -688,22 +718,30 @@ class MushafViewState extends State<MushafView> {
                 Row(
                   children: [
                     const SizedBox(width: 12),
-                    Text(
-                      '${_revealed.length} of ${_ayahKeys.length} revealed',
-                      style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                          color: _inkMute),
+                    // The count gives way, not the buttons. It is the part
+                    // that grows -- the missed tally appears the first time a
+                    // page goes badly -- and the part you can do without.
+                    Expanded(
+                      child: Text(
+                        '$_given of ${_stops.length} given'
+                        '${widget.library.missCount == 0 ? "" : "   ·   ${widget.library.missCount} missed"}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            color: _inkMute),
+                      ),
                     ),
-                    const Spacer(),
                     TextButton(
-                      onPressed: _revealed.length >= _ayahKeys.length
-                          ? null
-                          : _revealAll,
+                      style: _rowButton,
+                      onPressed:
+                          _given >= _stops.length ? null : _revealAll,
                       child: const Text('Show all'),
                     ),
                     TextButton(
-                      onPressed: _revealed.isEmpty ? null : _hideAll,
+                      style: _rowButton,
+                      onPressed: _frontier == 0 ? null : _hideAll,
                       child: const Text('Cover again'),
                     ),
                     const SizedBox(width: 4),
@@ -715,6 +753,16 @@ class MushafViewState extends State<MushafView> {
       ),
     );
   }
+
+  /// Two buttons and a count on one phone-width line: the ordinary button
+  /// padding does not fit, and a button that has been squeezed out of the row
+  /// is worse than a tight one.
+  static final ButtonStyle _rowButton = TextButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    minimumSize: const Size(0, 36),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    visualDensity: VisualDensity.compact,
+  );
 
   Future<void> _toggleBookmark() async {
     final key = _selected;
@@ -733,32 +781,101 @@ class MushafViewState extends State<MushafView> {
     if (mounted) setState(() {});
   }
 
-  /// The page's ayat, in the order the page reads them.
-  List<String> get _ayahKeys => ((_doc?['ayat'] as List?) ?? const [])
-      .cast<Map<String, Object?>>()
-      .map((a) => a['verse_key'] as String)
-      .toList();
+  /// Where the page is cut: the word every reveal stops at.
+  ///
+  /// Every ayah ends at one, so a page with nothing remarkable on it is given
+  /// back an ayah at a time. But a shared road running through an ayah ends at
+  /// one too, and that is the point of recall: the word after a road is the
+  /// fork, the first word at which the places carrying that road stop agreeing,
+  /// and the only word on the page nothing but memory supplies. Cut there and
+  /// the reciter is stopped mid-ayah -- road in front of them, turning
+  /// withheld -- which is where recitation actually breaks.
+  void _cut() {
+    _frontier = 0;
+    _stops = const [];
+    _keyOf = const {};
+    final doc = _doc;
+    if (doc == null) return;
 
-  /// Let the next ayah through, in the order the page reads them. Selecting it
-  /// as well means the head of the card names what was just uncovered, and the
-  /// bookmark applies to it.
+    final keyOf = <int, String>{};
+    final lastOfAyah = <String, int>{};
+    for (final line in (doc['lines'] as List).cast<Map<String, Object?>>()) {
+      for (final t in ((line['tokens'] as List?) ?? const [])
+          .cast<Map<String, Object?>>()) {
+        final id = t['word_id'] as int?;
+        if (id == null) continue;
+        final key = t['verse_key'] as String;
+        keyOf[id] = key;
+        lastOfAyah[key] = id;
+      }
+    }
+    if (keyOf.isEmpty) return;
+
+    final ids = keyOf.keys.toList()..sort();
+    final stops = <int>{
+      ...lastOfAyah.values,
+      for (final end in roadEnds(widget.db, ids.first, ids.last))
+        // Only where the road ends inside this page and the ayah runs on past
+        // it. A road that ends where its ayah does asks nothing.
+        if (keyOf.containsKey(end) && lastOfAyah[keyOf[end]] != end) end,
+    };
+    _keyOf = keyOf;
+    _stops = stops.toList()..sort();
+  }
+
+  /// How many of the page's cuts have been passed.
+  int get _given => _stops.where((w) => w <= _frontier).length;
+
+  /// Let the next piece through. Selecting the ayah it belongs to means the
+  /// head of the card names where you are, the bookmark applies to it, and a
+  /// long press knows what to mark missed.
   void _revealNext() {
-    for (final key in _ayahKeys) {
-      if (_revealed.contains(key)) continue;
+    for (final stop in _stops) {
+      if (stop <= _frontier) continue;
       setState(() {
-        _revealed.add(key);
-        _selected = key;
+        _frontier = stop;
+        _selected = _keyOf[stop];
       });
       return;
     }
   }
 
-  void _revealAll() => setState(() => _revealed.addAll(_ayahKeys));
+  void _revealAll() => setState(() {
+        if (_stops.isNotEmpty) _frontier = _stops.last;
+        _selected = _keyOf[_frontier];
+      });
 
   void _hideAll() => setState(() {
-        _revealed.clear();
+        _frontier = 0;
         _selected = null;
       });
+
+  /// The ayah in front of you, missed. Held rather than tapped, so it cannot be
+  /// hit by the tap that reveals -- and only failure is recorded: a page that
+  /// went well leaves nothing behind.
+  Future<void> _markMissed() async {
+    final key = _selected;
+    final doc = _doc;
+    if (!widget.recall || key == null || doc == null) return;
+    final ayat = (doc['ayat'] as List).cast<Map<String, Object?>>();
+    final match = ayat.where((a) => a['verse_key'] == key);
+    await widget.library.recordMiss(
+      verseKey: key,
+      page: _page,
+      surahNameAr:
+          match.isEmpty ? '' : match.first['surah_name_ar'] as String,
+    );
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$key marked missed'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   Widget _buildBlock(BuildContext context, BoxConstraints c) {
     // The whole of the typesetting: one size, from the measure, per page.
@@ -877,8 +994,9 @@ class MushafViewState extends State<MushafView> {
     // would re-set the page, and where a phrase falls on the page is half of
     // what a reciter holds. The ayah numbers stay lit, so the page keeps its
     // skeleton and you can see how much is still to come.
-    final hidden =
-        widget.recall && !t.isMarker && !_revealed.contains(t.verseKey);
+    final hidden = widget.recall &&
+        !t.isMarker &&
+        (t.wordId == null || t.wordId! > _frontier);
 
     return TextSpan(
       text: t.code,

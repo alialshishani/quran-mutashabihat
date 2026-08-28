@@ -9,6 +9,28 @@ import 'package:sqlite3/common.dart';
 
 import 'official.dart';
 
+/// Where a shared road ends, inside a stretch of the corpus.
+///
+/// The word after one of these is the fork: the first word at which the places
+/// carrying that road stop agreeing, and so the word a reciter has to know
+/// rather than infer. Recall cuts a page at these points, so what it asks for
+/// is the turning and not the whole ayah.
+///
+/// Only forks worth asking about: a phrase whose positions all continue the
+/// same way has no turning to miss.
+List<int> roadEnds(CommonDatabase db, int firstWord, int lastWord) => [
+      for (final r in db.select(
+        'SELECT DISTINCT o.end_word_id + f.shared_after AS road_end '
+        'FROM official_positions o '
+        'JOIN forks f ON f.phrase_id = o.phrase_id '
+        "WHERE f.shape != 'no_fork' AND f.branch_count >= 2 "
+        'AND o.start_word_id BETWEEN ? AND ? '
+        'ORDER BY road_end',
+        [firstWord, lastWord],
+      ))
+        r['road_end'] as int,
+    ];
+
 class PhraseNotFound implements Exception {
   PhraseNotFound(this.message);
   final String message;

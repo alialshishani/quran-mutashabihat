@@ -16,6 +16,7 @@ const Color _ink = Color(0xFF191C19);
 const Color _inkSoft = Color(0xFF4A5049);
 const Color _inkMute = Color(0xFF767C74);
 const Color _accent = Color(0xFF16584A);
+const Color _wrong = Color(0xFF8C3B2E);
 
 class Surah {
   Surah(sql.Row r)
@@ -102,7 +103,7 @@ class _IndexScreenState extends State<IndexScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         backgroundColor: const Color(0xFFFCFCFA),
         appBar: AppBar(
@@ -134,12 +135,20 @@ class _IndexScreenState extends State<IndexScreen> {
                     Tab(text: 'Sūrah'),
                     Tab(text: "Juz'"),
                     Tab(text: 'Marked'),
+                    Tab(text: 'Missed'),
                   ],
                 ),
         ),
         body: _searching
             ? _results()
-            : TabBarView(children: [_surahList(), _juzList(), _bookmarks()]),
+            : TabBarView(
+                children: [
+                  _surahList(),
+                  _juzList(),
+                  _bookmarks(),
+                  _missed(),
+                ],
+              ),
       ),
     );
   }
@@ -267,6 +276,55 @@ class _IndexScreenState extends State<IndexScreen> {
           );
         },
       );
+
+  /// What recall asked for and did not get, worst first.
+  ///
+  /// Only failures are here. A page that went well leaves no trace, so this is
+  /// a list of work rather than a log -- and an ayah leaves it when you say it
+  /// has been learnt, not on a timer.
+  Widget _missed() {
+    final missed = widget.library.missed;
+    if (missed.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Text(
+            'Nothing missed yet. In recall, hold the page when an āyah did '
+            'not come to you, and it is kept here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: _inkMute, height: 1.5),
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: missed.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final m = missed[i];
+        return ListTile(
+          leading: const Icon(Icons.error_outline, size: 18, color: _wrong),
+          title: Text(m.surahNameAr,
+              textDirection: TextDirection.rtl,
+              style: const TextStyle(
+                  fontFamily: 'Amiri', fontSize: 18, color: _ink)),
+          subtitle: Text(
+              '${m.verseKey}  ·  page ${m.page}  ·  '
+              'missed ${m.count == 1 ? "once" : "${m.count} times"}',
+              style: const TextStyle(fontSize: 11, color: _inkSoft)),
+          trailing: IconButton(
+            tooltip: 'Learnt it',
+            icon: const Icon(Icons.check, size: 18),
+            onPressed: () async {
+              await widget.library.clearMiss(m.verseKey);
+              if (mounted) setState(() {});
+            },
+          ),
+          onTap: () => _go(m.page, m.verseKey),
+        );
+      },
+    );
+  }
 
   Widget _bookmarks() {
     final marks = widget.library.bookmarks;
