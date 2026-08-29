@@ -69,10 +69,10 @@ class Words {
   /// The `count` tokens the muṣḥaf prints after `wordId`, stopping at the end
   /// of the sūrah.
   ///
-  /// A span that runs to the end of its āyah has no tail inside it, and the
-  /// words that follow are the answer to what this place says next -- they are
-  /// simply in the āyah after. One word of them is not enough to tell two
-  /// places apart, which is what a single `after` left the panel showing.
+  /// What a place says next does not stop at its āyah, and neither can the
+  /// answer to which place you are in. Five places share `وَٱتَّقُوا۟ ٱللَّهَ
+  /// لَعَلَّكُمْ` and three of them go on `تُفْلِحُونَ`, so a tail cut at the āyah
+  /// tells those three apart from nothing at all.
   List<Map<String, Object?>> following(int wordId, int surah, int count) {
     loadRange(wordId, wordId + count - 1);
     final out = <Map<String, Object?>>[];
@@ -168,6 +168,12 @@ Map<String, Object?> position(
     });
   }
 
+  // The last word of the last āyah this position sits in. What follows it is
+  // the next āyah, and that is where a short tail has to keep reading.
+  final ayahEnd = ((ayat.last['words'] as List)
+      .cast<Map<String, Object?>>()
+      .last['word_id'] as int);
+
   return {
     'verse_key': verseKey,
     'surah': surah,
@@ -182,10 +188,11 @@ Map<String, Object?> position(
     // In recitation order: `before` precedes the span, `after` follows it.
     'before': words.neighbour(start - 1, surah),
     'after': words.neighbour(end + 1, surah),
-    // And enough of what follows to be read as a continuation rather than a
-    // single word. Only the āyah's own words are in `ayat`, so a span that ends
-    // where its āyah does has its tail here and nowhere else.
-    'after_words': words.following(end + 1, surah, 8),
+    // And what the muṣḥaf prints after the last āyah this position sits in, so
+    // a tail can read on past its own āyah. Taken from the āyah's end rather
+    // than the span's, so it never repeats what `ayat` already carries and can
+    // simply be added to it.
+    'after_words': words.following(ayahEnd + 1, surah, 8),
     'crosses_ayah': covered.length > 1,
     'ayat': ayat,
   };

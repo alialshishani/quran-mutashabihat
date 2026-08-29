@@ -260,27 +260,27 @@ int _agreement(List<Map<String, Object?>> a, List<Map<String, Object?>> b) {
 }
 
 /// What this place says once the road has run out: the fork word first, then
-/// what follows it.
+/// what follows it, into the next āyah if that is where the reading goes.
 ///
-/// Usually that is the rest of the place's own āyah. Where the road runs to the
-/// end of the āyah there is nothing left inside it, and the continuation is in
-/// the āyah after -- which `ayat` does not carry, since it holds only the āyāt
-/// the span touches. `after_words` does, and it is what keeps a place whose
-/// road ends on an āyah from being set with one word against its siblings'
-/// seven. It stops at the sūrah seam: a road does not cross one, and there the
-/// place has no next word at all.
+/// A tail cut at the āyah's end answers nothing when the āyah ends soon after
+/// the fork. Five places share `وَٱتَّقُوا۟ ٱللَّهَ لَعَلَّكُمْ` and every one of
+/// them parts on a single word, three of them on the same single word: set
+/// `تُفْلِحُونَ` against `تُفْلِحُونَ` against `تُفْلِحُونَ` and the column has told
+/// the reciter nothing. What parts those three is the āyah after.
+///
+/// So the tail is the rest of the place's own āyah and then `after_words`,
+/// which begins where that āyah ends and so never repeats it. It stops at the
+/// sūrah seam: a place at the end of a sūrah has no next word, and that is
+/// itself the answer.
 List<Map<String, Object?>> _tailOf(Map<String, Object?> position) {
   final end = _roadEndOf(position);
-  final tail = [
+  final inAyah = [
     for (final w in _wordsOf(position))
       if ((w['word_id'] as int) > end) w,
   ];
-  if (tail.isNotEmpty) return tail;
-  // Only where the road ends where the span does. Past that `after_words`
-  // begins inside the road, and the road is already set at the head of the card.
-  if (end != position['end_word_id']) return const [];
-  return ((position['after_words'] as List?) ?? const [])
+  final after = ((position['after_words'] as List?) ?? const [])
       .cast<Map<String, Object?>>();
+  return [...inAyah, ...after];
 }
 
 /// One curated phrase: the road, and every place actually on it.

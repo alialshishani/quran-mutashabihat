@@ -204,6 +204,10 @@ def _position(
             }
         )
 
+    # The last word of the last āyah this position sits in. What follows it is
+    # the next āyah, and that is where a short tail has to keep reading.
+    ayah_end = ayat[-1]["words"][-1]["word_id"]
+
     return {
         "verse_key": occ["verse_key"],
         "surah": surah,
@@ -218,10 +222,11 @@ def _position(
         # In recitation order: `before` precedes the span, `after` follows it.
         "before": words.neighbour(start - 1, surah),
         "after": words.neighbour(end + 1, surah),
-        # And enough of what follows to be read as a continuation rather than a
-        # single word. Only the āyah's own words are in `ayat`, so a span that
-        # ends where its āyah does has its tail here and nowhere else.
-        "after_words": words.following(end + 1, surah, 8),
+        # And what the muṣḥaf prints after the last āyah this position sits in,
+        # so a tail can read on past its own āyah. Taken from the āyah's end
+        # rather than the span's, so it never repeats what `ayat` already
+        # carries and can simply be added to it.
+        "after_words": words.following(ayah_end + 1, surah, 8),
         "crosses_ayah": len(covered) > 1,
         "ayat": ayat,
     }
