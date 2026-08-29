@@ -187,6 +187,144 @@ List<SimilarAyah> similarAyat(
   return out;
 }
 
+/// Which pairs the index lists.
+///
+/// Two āyāt inside one sūrah and two across sūrahs are different problems to
+/// a memoriser -- the first is a place he loses his footing mid-sūrah, the
+/// second is a place he lands in the wrong sūrah entirely -- so the list can
+/// be asked for either.
+enum SimilarScope { all, sameSurah, crossSurah }
+
+/// Two āyāt that read alike, as the index lists them.
+///
+/// [SimilarAyah] answers "what else reads like the one I tapped", so it has a
+/// near side and a far side. This has neither: it is the pair itself, and both
+/// āyāt are shown with their partings lit.
+class SimilarPair {
+  SimilarPair({
+    required this.aKey,
+    required this.aSurahNameAr,
+    required this.aPage,
+    required this.bKey,
+    required this.bSurahNameAr,
+    required this.bPage,
+    required this.score,
+    required this.chunks,
+  });
+
+  final String aKey;
+  final String aSurahNameAr;
+  final int? aPage;
+
+  final String bKey;
+  final String bSurahNameAr;
+  final int? bPage;
+
+  final int score;
+  final List<DiffChunk> chunks;
+
+  List<DiffWord> get a => [
+        for (final c in chunks)
+          for (final w in c.here) DiffWord(w, c.same),
+      ];
+
+  List<DiffWord> get b => [
+        for (final c in chunks)
+          for (final w in c.there) DiffWord(w, c.same),
+      ];
+
+  List<DiffChunk> get partings => [for (final c in chunks) if (!c.same) c];
+
+  bool get identical => partings.isEmpty;
+}
+
+/// A page of the index, and how many pairs there are to page through.
+typedef SimilarPage = ({int total, List<SimilarPair> pairs});
+
+/// Every pair of āyāt that read alike, closest first.
+///
+/// Until this the twins were reachable one way only: tap an āyah on the page
+/// and hope it had one. The forks have had a destination of their own since
+/// they were built; this gives the same to the other confusion.
+///
+/// Symmetric rows are folded. QUL stores the pairing from both ends for most
+/// of them -- 2,432 of the 3,552 rows have a mirror -- and a list that showed
+/// both would say everything twice. The earlier āyah keeps the row, and the
+/// 1,120 rows QUL records from one end only are kept as they are.
+///
+/// Ordered by QUL's score, which puts the verbatim repeats first: every one
+/// of the 1,546 pairs that are word for word the same scores 100, and only
+/// five pairs that differ reach it. That is why the ranking needs no
+/// alignment -- and the alignment is run only over the rows this page shows,
+/// which is why the index can be paged through at all.
+SimilarPage similarIndex(
+  CommonDatabase db, {
+  SimilarScope scope = SimilarScope.all,
+  int limit = 20,
+  int offset = 0,
+}) {
+  if (!hasSimilar(db)) return (total: 0, pairs: const []);
+
+  // One of each unordered pair: the āyah that comes first in the muṣḥaf keeps
+  // it, and a row with no mirror keeps itself.
+  const fold = 'a.surah < b.surah OR (a.surah = b.surah AND a.ayah < b.ayah) '
+      'OR NOT EXISTS (SELECT 1 FROM similar_ayahs t '
+      '  WHERE t.verse_key = s.matched_verse_key '
+      '    AND t.matched_verse_key = s.verse_key)';
+
+  final where = switch (scope) {
+    SimilarScope.all => '($fold)',
+    SimilarScope.sameSurah => '($fold) AND a.surah = b.surah',
+    SimilarScope.crossSurah => '($fold) AND a.surah <> b.surah',
+  };
+
+  const from = 'FROM similar_ayahs s '
+      'JOIN ayahs a ON a.verse_key = s.verse_key '
+      'JOIN ayahs b ON b.verse_key = s.matched_verse_key ';
+
+  final total =
+      db.select('SELECT COUNT(*) AS n $from WHERE $where').first['n'] as int;
+
+  final rows = db.select(
+    'SELECT s.verse_key, s.matched_verse_key, s.score, '
+    '       a.page_start AS a_page, b.page_start AS b_page, '
+    '       sa.name_ar AS a_name, sb.name_ar AS b_name '
+    '$from'
+    'JOIN surahs sa ON sa.surah = a.surah '
+    'JOIN surahs sb ON sb.surah = b.surah '
+    'WHERE $where '
+    // Length breaks the tie inside a score, and it has to. Every one of the
+    // muqaṭṭaʿāt openings scores 100 against every other -- الٓمٓ is word for
+    // word الٓمٓ -- so without this the head of the list is fifty pairs of one
+    // letter-group, and the long verbatim repeats, which are the ones a
+    // memoriser actually loses his place in, sit pages behind them.
+    'ORDER BY s.score DESC, s.matched_words DESC, '
+    '         a.surah, a.ayah, b.surah, b.ayah '
+    'LIMIT ? OFFSET ?',
+    [limit, offset],
+  );
+
+  final pairs = <SimilarPair>[];
+  for (final r in rows) {
+    final aKey = r['verse_key'] as String;
+    final bKey = r['matched_verse_key'] as String;
+    final aw = _wordsOf(db, aKey);
+    final bw = _wordsOf(db, bKey);
+    if (aw.isEmpty || bw.isEmpty) continue;
+    pairs.add(SimilarPair(
+      aKey: aKey,
+      aSurahNameAr: r['a_name'] as String,
+      aPage: r['a_page'] as int?,
+      bKey: bKey,
+      bSurahNameAr: r['b_name'] as String,
+      bPage: r['b_page'] as int?,
+      score: r['score'] as int,
+      chunks: _align(aw, bw),
+    ));
+  }
+  return (total: total, pairs: pairs);
+}
+
 /// One āyah's words: what to show, and what to compare.
 ///
 /// Compared on `text_norm` rather than `text_uthmani` so that the small marks

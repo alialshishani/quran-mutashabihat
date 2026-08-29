@@ -156,6 +156,13 @@ const String kMadani = 'مدنية';
 // ------------------------------------------------------------------ the forks
 
 const String kAll = 'الكل';
+const String kTabPhrases = 'الألفاظ';
+const String kTabAyat = 'الآيات';
+const String kScopeSameSurah = 'في سورة واحدة';
+const String kScopeCrossSurah = 'بين سورتين';
+String pairsN(int n) => arCount(n, 'زوج واحد', 'زوجان', 'أزواج', 'زوجًا');
+const String kTwinsEmpty = 'لا آيات متشابهة في هذه النسخة.';
+const String kTwinsGloss = 'آيتان تقرآن سواءً، وموضع افتراقهما';
 const String kSortUseful = 'الأنفع';
 const String kSortPositions = 'عدد المواضع';
 const String kSortBranches = 'عدد الأوجه';
@@ -186,7 +193,7 @@ String pegKind(String kind) => switch (kind) {
 const String kNoPeg =
     'لا ضابط محقَّق لهذا الموضع — لا تُخرِج مجموعةُ الاشتباه علامةً تفصله وحدها.';
 String kSeeOnPage(int p) => 'انظرها في ${pageN(p)}';
-String kOneOf(int n) => 'أحد ${placesOblique(n)}';
+String kOneOf(int n) => 'أحد ${placesGen(n)}';
 String kOrdinalHere(int i, int n) => 'الـ${ar(i)} من ${ar(n)} في السورة';
 
 // ------------------------------------------------------------------ the today
@@ -213,7 +220,7 @@ const String kNoPoolGloss =
 
 // ---------------------------------------------------------------- the session
 
-String kSessionOf(int n) => 'جلسة من ${questionsOblique(n)}';
+String kSessionOf(int n) => 'جلسة من ${questionsGen(n)}';
 const String kSessionDone = 'انتهت الجلسة';
 String kSessionScore(int right, int all) => '${ar(right)} من ${ar(all)}';
 const String kSessionAgain = 'أعد المتعثرة';
@@ -238,20 +245,26 @@ const String kDetectedGloss = 'كشفُ المشروع نفسه، لا القا�
 String kOtherPlaces(int n) => '${places(n)} ${otherM(n)}';
 const String kHere = 'هنا';
 const String kElsewhere = 'وفي غيرها';
-/// The counted noun when it is not the subject: after a verb, where it is
-/// the object, and after a preposition, where it is genitive. Arabic spells
-/// those two the same for a dual -- موضعين, not موضعان -- so one form serves
-/// both. "تفترقان في موضعان" and "يخالف موضعان" are the same mistake.
+/// The counted noun after a verb, where it is the object and accusative.
 ///
-/// The nominative [places] is right wherever a count stands on its own, which
-/// is most places.
-String placesOblique(int n) =>
+/// The dual is where the nominative [places] goes visibly wrong -- موضعين,
+/// not موضعان -- but the singular differs too, and accusative and genitive
+/// are not the same case however alike the dual makes them look. Three and up
+/// are spelled alike either way: the plural of three to ten, and the tamyīz of
+/// eleven and up, which stays accusative whatever governs the number.
+String placesAcc(int n) =>
     arCount(n, 'موضعًا واحدًا', 'موضعين', 'مواضع', 'موضعًا');
 
-String questionsOblique(int n) =>
+/// The same noun after a preposition, or after أحد, where it is genitive.
+/// Only the singular parts company with [placesAcc]: موضعٍ واحد, not موضعًا
+/// واحدًا. "تفترقان في موضعًا واحدًا" is the mistake this exists to stop.
+String placesGen(int n) =>
+    arCount(n, 'موضعٍ واحد', 'موضعين', 'مواضع', 'موضعًا');
+
+String questionsGen(int n) =>
     arCount(n, 'سؤالٍ واحد', 'سؤالين', 'أسئلة', 'سؤالًا');
 
-String kGoesAgainst(int n) => 'هذا الموضع يخالف ${placesOblique(n)}';
+String kGoesAgainst(int n) => 'هذا الموضع يخالف ${placesAcc(n)}';
 String kShareRoad(int n) => '${places(n)} تشترك في هذا اللفظ';
 String kOtherWays(int n, int p) =>
     '${ways(n)} ${otherM(n)}، ${p == n ? "في كل منها موضع" : places(p)}';
@@ -268,9 +281,13 @@ String kSimilarCount(int n) => '${ayatN(n)} تشبهها';
 const String kSimilarGloss = 'آيات تقرأ كهذه، وموضع افتراقها';
 String kMoreSimilar(int n) => '${ayatN(n)} ${otherF(n)} تشبهها';
 const String kIdentical = 'مطابقة لها';
+
+/// In the list neither āyah is "the" one, so neither is مطابقة *لها* -- there
+/// is no "it" to be identical to. The pair is named instead.
+const String kIdenticalPair = 'متطابقتان';
 const String kIdenticalGloss =
     'الآية مكررة بنصها؛ لا يميزها إلا ما قبلها وما بعدها.';
-String kPartsIn(int n) => 'تفترقان في ${placesOblique(n)}';
+String kPartsIn(int n) => 'تفترقان في ${placesGen(n)}';
 const String kThere = 'هناك';
 String kMorePartings(int n) => 'و${places(n)} ${otherM(n)}';
 const String kNothingDropped = '—';

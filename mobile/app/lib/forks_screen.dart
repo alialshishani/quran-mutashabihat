@@ -1,3 +1,14 @@
+// The two kinds of mutashābihāt, side by side.
+//
+// This screen used to be the fork list alone. There are two confusions in the
+// muṣḥaf, though, and only one of them was reachable from anywhere: a shared
+// run of wording that several places part from at a fork, and a whole āyah
+// with a near twin. The second had been in the corpus all along and could be
+// met only by tapping the right word on the right page.
+//
+// So one destination, two tabs: الألفاظ for the forks below, الآيات for the
+// twins in twins.dart.
+//
 // The official mutashābihāt, as forks.
 //
 // A fork is the road every position shares, the point where they part, and each
@@ -13,6 +24,7 @@ import 'package:sqlite3/common.dart' show CommonDatabase;
 
 import 'strings.dart';
 import 'theme.dart';
+import 'twins.dart';
 import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
@@ -109,86 +121,111 @@ class _ForksScreenState extends State<ForksScreen> {
     final phrases =
         ((doc?['phrases'] as List?) ?? const []).cast<Map<String, Object?>>();
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Menu',
-          onPressed: widget.onOpenMenu,
-          icon: const Icon(Icons.menu),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: _paper,
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: kMenu,
+            onPressed: widget.onOpenMenu,
+            icon: const Icon(Icons.menu),
+          ),
+          title: Text(kNavForks, style: tTitle()),
+          bottom: TabBar(
+            labelColor: _accent,
+            unselectedLabelColor: _inkMute,
+            indicatorColor: _accent,
+            labelStyle: tBody(_accent),
+            unselectedLabelStyle: tBody(_inkMute),
+            tabs: const [
+              Tab(text: kTabPhrases),
+              Tab(text: kTabAyat),
+            ],
+          ),
         ),
-        title: Text(kNavForks, style: tTitle()),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(84),
-          child: Column(
+        body: TabBarView(
+          children: [
+            _phrases(doc, total, phrases),
+            TwinsTab(db: widget.db, onGo: widget.onGo),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The fork list: what it used to be, moved under a tab.
+  Widget _phrases(
+    Map<String, Object?>? doc,
+    int total,
+    List<Map<String, Object?>> phrases,
+  ) {
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
             children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: [
-                    _chip(kAll, _shape == null, () {
-                      _shape = null;
-                      _offset = 0;
-                      _load();
-                    }),
-                    for (final s in kShapeInfo.keys)
-                      _chip(kShapeInfo[s]!.label, _shape == s, () {
-                        _shape = s;
-                        _offset = 0;
-                        _load();
-                      }),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: Row(
-                  children: [
-                    Text(places(total), style: tLabel()),
-                    const Spacer(),
-                    DropdownButton<String>(
-                      value: _sort,
-                      underline: const SizedBox.shrink(),
-                      style: tCaption(_ink),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'useful', child: Text(kSortUseful)),
-                        DropdownMenuItem(
-                            value: 'positions', child: Text(kSortPositions)),
-                        DropdownMenuItem(
-                            value: 'branches', child: Text(kSortBranches)),
-                        DropdownMenuItem(
-                            value: 'surahs', child: Text(kSortSurahs)),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        _sort = v;
-                        _offset = 0;
-                        _load();
-                      },
-                    ),
-                  ],
-                ),
+              _chip(kAll, _shape == null, () {
+                _shape = null;
+                _offset = 0;
+                _load();
+              }),
+              for (final s in kShapeInfo.keys)
+                _chip(kShapeInfo[s]!.label, _shape == s, () {
+                  _shape = s;
+                  _offset = 0;
+                  _load();
+                }),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Row(
+            children: [
+              Text(places(total), style: tLabel()),
+              const Spacer(),
+              DropdownButton<String>(
+                value: _sort,
+                underline: const SizedBox.shrink(),
+                style: tCaption(_ink),
+                items: const [
+                  DropdownMenuItem(value: 'useful', child: Text(kSortUseful)),
+                  DropdownMenuItem(
+                      value: 'positions', child: Text(kSortPositions)),
+                  DropdownMenuItem(
+                      value: 'branches', child: Text(kSortBranches)),
+                  DropdownMenuItem(value: 'surahs', child: Text(kSortSurahs)),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  _sort = v;
+                  _offset = 0;
+                  _load();
+                },
               ),
             ],
           ),
         ),
-      ),
-      body: doc == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: phrases.length + 1,
-              itemBuilder: (context, i) {
-                if (i == phrases.length) return _pager(total);
-                return _ForkCard(
-                  fork: phrases[i],
-                  db: widget.db,
-                  onGo: widget.onGo,
-                );
-              },
-            ),
+        Expanded(
+          child: doc == null
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: phrases.length + 1,
+                  itemBuilder: (context, i) {
+                    if (i == phrases.length) return _pager(total);
+                    return _ForkCard(
+                      fork: phrases[i],
+                      db: widget.db,
+                      onGo: widget.onGo,
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
