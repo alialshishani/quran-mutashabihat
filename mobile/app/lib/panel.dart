@@ -260,12 +260,15 @@ int _agreement(List<Map<String, Object?>> a, List<Map<String, Object?>> b) {
 }
 
 /// What this place says once the road has run out: the fork word first, then
-/// the rest of its āyah.
+/// what follows it.
 ///
-/// Empty where the road runs to the end of the āyah. There the muṣḥaf's next
-/// word is the parting and `after` carries it -- but only when the road ends
-/// where the span does, since otherwise `after` is a word still inside the
-/// road. `after` is null at a sūrah seam, and then the place has no next word.
+/// Usually that is the rest of the place's own āyah. Where the road runs to the
+/// end of the āyah there is nothing left inside it, and the continuation is in
+/// the āyah after -- which `ayat` does not carry, since it holds only the āyāt
+/// the span touches. `after_words` does, and it is what keeps a place whose
+/// road ends on an āyah from being set with one word against its siblings'
+/// seven. It stops at the sūrah seam: a road does not cross one, and there the
+/// place has no next word at all.
 List<Map<String, Object?>> _tailOf(Map<String, Object?> position) {
   final end = _roadEndOf(position);
   final tail = [
@@ -273,13 +276,11 @@ List<Map<String, Object?>> _tailOf(Map<String, Object?> position) {
       if ((w['word_id'] as int) > end) w,
   ];
   if (tail.isNotEmpty) return tail;
-  final after = position['after'] as String?;
-  if (after != null && end == position['end_word_id']) {
-    return [
-      {'text': after},
-    ];
-  }
-  return const [];
+  // Only where the road ends where the span does. Past that `after_words`
+  // begins inside the road, and the road is already set at the head of the card.
+  if (end != position['end_word_id']) return const [];
+  return ((position['after_words'] as List?) ?? const [])
+      .cast<Map<String, Object?>>();
 }
 
 /// One curated phrase: the road, and every place actually on it.
@@ -518,6 +519,8 @@ class _Place extends StatelessWidget {
                           position['after'] == null
                               ? kEndsSurah
                               : kNothingDropped,
+                          // `after` is null only at the sūrah's seam, which is
+                          // the one place a road really has nothing after it.
                           textDirection: TextDirection.rtl,
                           textAlign: TextAlign.right,
                           style: tCaption(_inkMute),

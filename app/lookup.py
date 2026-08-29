@@ -85,7 +85,7 @@ class _Words:
         if all(w in self._rows for w in range(first, last + 1)):
             return
         for row in self._con.execute(
-            "SELECT word_id, surah, ayah, word_pos, text_uthmani "
+            "SELECT word_id, surah, ayah, word_pos, text_uthmani, text_norm "
             "FROM words WHERE word_id BETWEEN ? AND ?",
             (first, last),
         ):
@@ -110,6 +110,28 @@ class _Words:
         if row is None or row["surah"] != surah:
             return None
         return row["text_uthmani"]
+
+    def following(self, word_id: int, surah: int, count: int) -> list[dict]:
+        """The `count` tokens the muṣḥaf prints after `word_id`, to the sūrah's end.
+
+        A span that runs to the end of its āyah has no tail inside it, and what
+        it says next is simply in the āyah after. One word of that is not enough
+        to tell two places apart, which is all a single `after` could give.
+        """
+        self.load_range(word_id, word_id + count - 1)
+        out: list[dict] = []
+        for w in range(word_id, word_id + count):
+            row = self.get(w)
+            if row is None or row["surah"] != surah:
+                break
+            out.append(
+                {
+                    "word_id": row["word_id"],
+                    "text": row["text_uthmani"],
+                    "norm": row["text_norm"],
+                }
+            )
+        return out
 
 
 def _ayah_row(con: sqlite3.Connection, surah: int, ayah: int) -> sqlite3.Row:
@@ -170,6 +192,11 @@ def _position(
                         "word_id": row["word_id"],
                         "word_pos": row["word_pos"],
                         "text": row["text_uthmani"],
+                        # What two spellings of one word are compared on. The
+                        # curated list groups by root, so a caller that wants to
+                        # know whether two places really say the same word has
+                        # to be able to ask.
+                        "norm": row["text_norm"],
                         "in_span": start <= row["word_id"] <= end,
                     }
                     for row in _ayah_words(con, key, words)
@@ -191,6 +218,10 @@ def _position(
         # In recitation order: `before` precedes the span, `after` follows it.
         "before": words.neighbour(start - 1, surah),
         "after": words.neighbour(end + 1, surah),
+        # And enough of what follows to be read as a continuation rather than a
+        # single word. Only the āyah's own words are in `ayat`, so a span that
+        # ends where its āyah does has its tail here and nowhere else.
+        "after_words": words.following(end + 1, surah, 8),
         "crosses_ayah": len(covered) > 1,
         "ayat": ayat,
     }

@@ -65,6 +65,28 @@ class Words {
     if (row == null || row['surah'] != surah) return null;
     return row['text_uthmani'] as String;
   }
+
+  /// The `count` tokens the muṣḥaf prints after `wordId`, stopping at the end
+  /// of the sūrah.
+  ///
+  /// A span that runs to the end of its āyah has no tail inside it, and the
+  /// words that follow are the answer to what this place says next -- they are
+  /// simply in the āyah after. One word of them is not enough to tell two
+  /// places apart, which is what a single `after` left the panel showing.
+  List<Map<String, Object?>> following(int wordId, int surah, int count) {
+    loadRange(wordId, wordId + count - 1);
+    final out = <Map<String, Object?>>[];
+    for (var w = wordId; w < wordId + count; w++) {
+      final row = get(w);
+      if (row == null || row['surah'] != surah) break;
+      out.add({
+        'word_id': row['word_id'],
+        'text': row['text_uthmani'],
+        'norm': row['text_norm'],
+      });
+    }
+    return out;
+  }
 }
 
 /// Whether `pipeline.official` and `pipeline.pegs` have run on this corpus.
@@ -160,6 +182,10 @@ Map<String, Object?> position(
     // In recitation order: `before` precedes the span, `after` follows it.
     'before': words.neighbour(start - 1, surah),
     'after': words.neighbour(end + 1, surah),
+    // And enough of what follows to be read as a continuation rather than a
+    // single word. Only the āyah's own words are in `ayat`, so a span that ends
+    // where its āyah does has its tail here and nowhere else.
+    'after_words': words.following(end + 1, surah, 8),
     'crosses_ayah': covered.length > 1,
     'ayat': ayat,
   };
