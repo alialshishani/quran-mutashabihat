@@ -17,6 +17,7 @@ import 'package:quran_port/drill.dart' show DrillCandidate, drillPool;
 import 'package:quran_port/forks.dart' show roadEnds;
 import 'package:quran_port/lookup.dart' as ql;
 import 'package:quran_port/mushaf.dart';
+import 'package:quran_port/similar.dart' show similarAyat;
 import 'package:sqlite3/common.dart' show CommonDatabase;
 
 import 'corpus.dart';
@@ -973,6 +974,11 @@ class MushafViewState extends State<MushafView> {
         verseKey: verseKey,
         matches: (doc['official'] as List).cast<Map<String, Object?>>(),
         detected: (doc['matches'] as List).cast<Map<String, Object?>>(),
+        // Asked for separately rather than folded into `lookup`, which is a
+        // port of app/lookup.py and checked page for page against the
+        // Python's own output -- widening its result would break the goldens
+        // it is worth having.
+        similar: similarAyat(widget.db, verseKey),
         onJump: _jump,
       ),
     );

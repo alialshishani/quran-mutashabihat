@@ -233,6 +233,24 @@ String kShareRoad(int n) => '${places(n)} تشترك في هذا اللفظ';
 String kOtherWays(int n, int p) =>
     '${ways(n)} أخرى، ${p == n ? "في كل منها موضع" : places(p)}';
 const String kCrossesSurah = 'يعبر السور';
+
+// ------------------------------------------------------- the āyah's near twin
+//
+// A different confusion from the shared phrase above it: not several places
+// that share a run of wording, but a whole āyah that has a near twin
+// somewhere else. 636 āyāt carry one and carry no official phrase at all, so
+// for their reader the panel used to say there was nothing to know.
+
+String kSimilarCount(int n) => '${ayatN(n)} تشبهها';
+const String kSimilarGloss = 'آيات تقرأ كهذه، وموضع افتراقها';
+String kMoreSimilar(int n) => '${ayatN(n)} أخرى تشبهها';
+const String kIdentical = 'مطابقة لها';
+const String kIdenticalGloss =
+    'الآية مكررة بنصها؛ لا يميزها إلا ما قبلها وما بعدها.';
+String kPartsIn(int n) => 'تفترقان في ${places(n)}';
+const String kThere = 'هناك';
+String kMorePartings(int n) => 'و${places(n)} أخرى';
+const String kNothingDropped = '—';
 const String kNoPegShort = 'لا ضابط محقَّق لهذا الموضع';
 
 // ----------------------------------------------------------------- the states

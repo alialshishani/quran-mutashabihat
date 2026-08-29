@@ -8,6 +8,7 @@
 // as `pipeline.pegs` wrote them; nothing is composed in the app.
 
 import 'package:flutter/material.dart';
+import 'package:quran_port/similar.dart';
 
 import 'strings.dart';
 import 'theme.dart';
@@ -35,6 +36,7 @@ class MutashabihatPanel extends StatelessWidget {
     required this.verseKey,
     required this.matches,
     required this.detected,
+    required this.similar,
     required this.onJump,
   });
 
@@ -47,6 +49,13 @@ class MutashabihatPanel extends StatelessWidget {
   /// that verified for them. Behind a disclosure, as the web page has it -- the
   /// curated phrases are the answer, these are the evidence behind it.
   final List<Map<String, Object?>> detected;
+
+  /// Whole ayat that read like this one, with the places they part. A
+  /// different confusion from the phrases above: not a shared run of wording
+  /// between several places, but one ayah with a near twin. 636 ayat carry one
+  /// of these and no curated phrase at all, and for their reader this panel
+  /// used to have nothing to say.
+  final List<SimilarAyah> similar;
 
   /// (page, verseKey) of the sibling to turn to.
   final void Function(int page, String verseKey) onJump;
@@ -93,7 +102,9 @@ class MutashabihatPanel extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Text(
-                  detected.isEmpty ? kNothingHere : kNothingCurated,
+                  detected.isEmpty && similar.isEmpty
+                      ? kNothingHere
+                      : kNothingCurated,
                   style: tCaption(),
                 ),
               ),
@@ -119,6 +130,41 @@ class MutashabihatPanel extends StatelessWidget {
                   ],
                 ),
               ),
+            // The twins sit between the curated phrases and pass A's own
+            // detection, which is where they belong on the evidence: QUL
+            // pairs them, as it lists the phrases above, but what parts them
+            // is computed here -- see the head of port/lib/similar.dart.
+            if (similar.isNotEmpty) ...[
+              const Divider(height: 26),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(kSimilarCount(similar.length), style: tBody()),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(kSimilarGloss, style: tLabel()),
+              ),
+              // The closest twin leads, open, as the lead phrase does above
+              // it: it is the one the reciter is actually at risk from, and
+              // the rest are reference.
+              _Twin(twin: similar.first, onJump: onJump),
+              if (similar.length > 1)
+                Theme(
+                  data: Theme.of(context)
+                      .copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    title: Text(kMoreSimilar(similar.length - 1),
+                        style: tBody(_accent)),
+                    children: [
+                      for (final t in similar.skip(1))
+                        _Twin(twin: t, onJump: onJump),
+                    ],
+                  ),
+                ),
+            ],
             if (detected.isNotEmpty)
               Theme(
                 data: Theme.of(context)
@@ -382,6 +428,128 @@ class _Sibling extends StatelessWidget {
             _Peg(position: position, isHere: false),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One ayah that reads like the one tapped, and where the two part.
+///
+/// The twin is set whole, with the words it shares dimmed and the words it
+/// does not lit -- so the eye lands on the parting rather than reading two
+/// near-identical ayat and hoping to spot it. Under that, the partings are
+/// paired and named: here this, there that, which is how a teacher says it
+/// and how a dabit is held.
+class _Twin extends StatelessWidget {
+  const _Twin({required this.twin, required this.onJump});
+
+  final SimilarAyah twin;
+  final void Function(int page, String verseKey) onJump;
+
+  /// A parting can be one-sided -- one ayah simply carrying words the other
+  /// has nowhere -- and an empty half is worth showing as empty rather than
+  /// leaving the row to collapse.
+  Widget _side(String label, List<String> words, bool here) => Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            SizedBox(
+              width: 52,
+              child: Text(label, style: tLabel(here ? _accent : _inkMute)),
+            ),
+            Expanded(
+              child: Text(
+                words.isEmpty ? kNothingDropped : words.join(' '),
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                style: words.isEmpty
+                    ? tCaption(_inkMute)
+                    : tQuranSmall(here ? _ink : _goldDeep),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final page = twin.page;
+    // Four is enough to be a dabit. Past that the two ayat are not a pair to
+    // hold apart by their differences, they are simply two ayat, and printing
+    // a dozen rows says so less clearly than one line does.
+    final partings = twin.partings.take(4).toList();
+    final rest = twin.partings.length - partings.length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _raised,
+        border: Border.all(
+            color: twin.identical ? _goldBright : _surfaceAlt,
+            width: twin.identical ? 0.8 : 1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: page == null ? null : () => onJump(page, twin.verseKey),
+            borderRadius: BorderRadius.circular(4),
+            child: Row(
+              children: [
+                Text(twin.surahNameAr,
+                    textDirection: TextDirection.rtl, style: tQuranSmall()),
+                const SizedBox(width: 8),
+                Text(arDigits(twin.verseKey), style: tLabel()),
+                const Spacer(),
+                if (page != null)
+                  Text('${pageN(page)}  \u2039', style: tCaption(_accent)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // The twin itself. One size throughout -- a larger face for the
+          // differing words would ripple the baseline of a line of naskh --
+          // so the parting is carried by ink and by a wash behind it.
+          Text.rich(
+            TextSpan(children: [
+              for (final w in twin.there)
+                TextSpan(
+                  text: '${w.text} ',
+                  style: w.same
+                      ? tQuranSmall(_inkSoft)
+                      : tQuranSmall(_goldDeep)
+                          .copyWith(backgroundColor: _goldSoft),
+                ),
+            ]),
+            textDirection: TextDirection.rtl,
+          ),
+          const SizedBox(height: 10),
+
+          Text(
+            twin.identical ? kIdentical : kPartsIn(twin.partings.length),
+            style: tCaption(twin.identical ? _goldDeep : _inkMute),
+          ),
+          if (twin.identical)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(kIdenticalGloss, style: tLabel()),
+            ),
+          for (final c in partings) ...[
+            const SizedBox(height: 4),
+            _side(kHere, c.here, true),
+            _side(kThere, c.there, false),
+          ],
+          if (rest > 0)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(top: 6, start: 52),
+              child: Text(kMorePartings(rest), style: tLabel()),
+            ),
+        ],
       ),
     );
   }
