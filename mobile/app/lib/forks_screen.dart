@@ -10,7 +10,10 @@
 import 'package:flutter/material.dart';
 import 'package:quran_port/forks.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
+
+import 'strings.dart';
 import 'theme.dart';
+import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
 // rather than constants because the light can change while the app is up.
@@ -30,23 +33,23 @@ Color get _wrongSofter => palette.wrongSofter;
 /// Cheapest to hold first, which is the order `sort: useful` puts them in.
 final Map<String, ({String label, String gloss, Color tint})> kShapeInfo = {
   'all_but_one': (
-    label: 'all but one',
-    gloss: 'every position takes the same way out except one',
+    label: 'واحد يخالف',
+    gloss: 'تأخذ المواضع كلها وجهًا واحدًا إلا موضعًا واحدًا',
     tint: _accentSoft,
   ),
   'two_way': (
-    label: 'two ways',
-    gloss: 'the positions split two ways',
+    label: 'وجهان',
+    gloss: 'تنقسم المواضع على وجهين',
     tint: _goldSoft,
   ),
   'many': (
-    label: 'many ways',
-    gloss: 'a peg is needed for each position',
+    label: 'لكلٍّ وجه',
+    gloss: 'يحتاج كل موضع إلى ضابط يخصه',
     tint: _wrongSofter,
   ),
   'no_fork': (
-    label: 'no fork',
-    gloss: 'the positions never part; they are told apart by what precedes',
+    label: 'لا افتراق',
+    gloss: 'لا تفترق المواضع؛ وإنما يميزها ما قبلها',
     tint: _surface,
   ),
 };
@@ -114,7 +117,7 @@ class _ForksScreenState extends State<ForksScreen> {
           onPressed: widget.onOpenMenu,
           icon: const Icon(Icons.menu),
         ),
-        title: const Text('Forks'),
+        title: Text(kNavForks, style: tTitle()),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(84),
           child: Column(
@@ -124,7 +127,7 @@ class _ForksScreenState extends State<ForksScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Row(
                   children: [
-                    _chip('all', _shape == null, () {
+                    _chip(kAll, _shape == null, () {
                       _shape = null;
                       _offset = 0;
                       _load();
@@ -142,25 +145,21 @@ class _ForksScreenState extends State<ForksScreen> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                 child: Row(
                   children: [
-                    Text('$total forks',
-                        style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            color: _inkMute)),
+                    Text(places(total), style: tLabel()),
                     const Spacer(),
                     DropdownButton<String>(
                       value: _sort,
                       underline: const SizedBox.shrink(),
-                      style: TextStyle(fontSize: 12, color: _ink),
+                      style: tCaption(_ink),
                       items: const [
                         DropdownMenuItem(
-                            value: 'useful', child: Text('useful')),
+                            value: 'useful', child: Text(kSortUseful)),
                         DropdownMenuItem(
-                            value: 'positions', child: Text('positions')),
+                            value: 'positions', child: Text(kSortPositions)),
                         DropdownMenuItem(
-                            value: 'branches', child: Text('branches')),
+                            value: 'branches', child: Text(kSortBranches)),
                         DropdownMenuItem(
-                            value: 'surahs', child: Text('sūrahs')),
+                            value: 'surahs', child: Text(kSortSurahs)),
                       ],
                       onChanged: (v) {
                         if (v == null) return;
@@ -196,7 +195,7 @@ class _ForksScreenState extends State<ForksScreen> {
   Widget _chip(String label, bool on, VoidCallback tap) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
         child: ChoiceChip(
-          label: Text(label, style: const TextStyle(fontSize: 12)),
+          label: Text(label, style: tCaption(_ink)),
           selected: on,
           onSelected: (_) => tap(),
         ),
@@ -208,25 +207,28 @@ class _ForksScreenState extends State<ForksScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextButton(
+              style: TextButton.styleFrom(textStyle: tCaption()),
               onPressed: _offset <= 0
                   ? null
                   : () {
                       _offset = (_offset - _pageSize).clamp(0, 1 << 30);
                       _load();
                     },
-              child: const Text('previous'),
+              child: const Text(kPrevious),
             ),
-            Text('${_offset + 1}–${(_offset + _pageSize).clamp(0, total)}',
-                style: TextStyle(
-                    fontFamily: 'monospace', fontSize: 11, color: _inkMute)),
+            Text(
+                '${ar(_offset + 1)}–'
+                '${ar((_offset + _pageSize).clamp(0, total))}',
+                style: tLabel()),
             TextButton(
+              style: TextButton.styleFrom(textStyle: tCaption()),
               onPressed: _offset + _pageSize >= total
                   ? null
                   : () {
                       _offset += _pageSize;
                       _load();
                     },
-              child: const Text('next'),
+              child: const Text(kNext),
             ),
           ],
         ),
@@ -266,19 +268,14 @@ class _ForkCard extends StatelessWidget {
                   color: info?.tint ?? _surface,
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: Text(info?.label ?? shape,
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: _gold)),
+                child: Text(info?.label ?? shape, style: tLabel(_gold)),
               ),
               const Spacer(),
               Text(
-                '${fork['position_count']} places  ·  '
-                '${fork['branch_count']} ways  ·  '
-                '${fork['surah_count']} sūrahs',
-                style: TextStyle(
-                    fontFamily: 'monospace', fontSize: 10, color: _inkMute),
+                '${places(fork['position_count'] as int)}  ·  '
+                '${ways(fork['branch_count'] as int)}  ·  '
+                '${surahsN(fork['surah_count'] as int)}',
+                style: tLabel(),
               ),
             ],
           ),
@@ -290,28 +287,17 @@ class _ForkCard extends StatelessWidget {
             TextSpan(children: [
               TextSpan(
                 text: fork['phrase_ar'] as String,
-                style: TextStyle(
-                    fontFamily: 'Amiri',
-                    fontSize: 20,
-                    height: 1.9,
-                    color: _ink),
+                style: tQuranBody(),
               ),
               if (tail != null)
-                TextSpan(
-                  text: ' $tail',
-                  style: TextStyle(
-                      fontFamily: 'Amiri',
-                      fontSize: 20,
-                      height: 1.9,
-                      color: _inkMute),
-                ),
+                TextSpan(text: ' $tail', style: tQuranBody(_inkMute)),
             ]),
             textDirection: TextDirection.rtl,
           ),
 
           if (info != null) ...[
             const SizedBox(height: 6),
-            Text(info.gloss, style: TextStyle(fontSize: 11, color: _inkMute)),
+            Text(info.gloss, style: tCaption(_inkMute)),
           ],
           const Divider(height: 20),
 
@@ -344,25 +330,22 @@ class _Branch extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(largest ? Icons.subdirectory_arrow_left : Icons.arrow_right,
+              Icon(largest ? Icons.subdirectory_arrow_right : Icons.arrow_left,
                   size: 16, color: largest ? _inkMute : _accent),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  endsSurah ? '— ends the sūrah —' : (token ?? '—'),
+                  endsSurah ? kEndsSurah : (token ?? '—'),
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    fontFamily: 'Amiri',
-                    fontSize: 17,
-                    color: largest ? _inkSoft : _ink,
-                    fontWeight: largest ? FontWeight.normal : FontWeight.w600,
-                  ),
+                  // The way the crowd does not take is the one worth seeing,
+                  // and it is carried by size and ink rather than by weight:
+                  // only Amiri Regular is bundled, so a w600 here would be
+                  // synthesised and the naskh joins would thicken into blots.
+                  style: largest ? tQuranSmall(_inkSoft) : tQuranBody(),
                 ),
               ),
               const SizedBox(width: 8),
-              Text('${branch['position_count']}',
-                  style: TextStyle(
-                      fontFamily: 'monospace', fontSize: 11, color: _inkMute)),
+              Text(ar(branch['position_count'] as int), style: tLabel()),
             ],
           ),
           const SizedBox(height: 2),
@@ -375,9 +358,10 @@ class _Branch extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   label: Text(
-                    '${p['surah_name_ar']} ${p['verse_key']}',
+                    '${p['surah_name_ar']} '
+                    '${arDigits(p['verse_key'] as String)}',
                     textDirection: TextDirection.rtl,
-                    style: const TextStyle(fontSize: 11),
+                    style: tLabel(_ink),
                   ),
                   onPressed: p['page'] == null
                       ? null

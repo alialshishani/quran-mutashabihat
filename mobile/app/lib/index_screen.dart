@@ -11,12 +11,13 @@ import 'package:quran_port/search.dart';
 import 'package:sqlite3/common.dart' as sql show CommonDatabase, Row;
 
 import 'library.dart';
+import 'strings.dart';
 import 'theme.dart';
+import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
 // rather than constants because the light can change while the app is up.
 Color get _paper => palette.paper;
-Color get _ink => palette.ink;
 Color get _inkSoft => palette.inkSoft;
 Color get _inkMute => palette.inkMute;
 Color get _accent => palette.accent;
@@ -75,6 +76,7 @@ class _IndexScreenState extends State<IndexScreen> {
   late final List<Surah> _surahs = allSurahs(widget.db);
   late final List<({int juz, int page})> _juz = allJuz(widget.db);
   final TextEditingController _query = TextEditingController();
+  final TextEditingController _jump = TextEditingController();
 
   List<SearchHit> _hits = const [];
   bool _searching = false;
@@ -82,8 +84,16 @@ class _IndexScreenState extends State<IndexScreen> {
   @override
   void dispose() {
     _query.dispose();
+    _jump.dispose();
     super.dispose();
   }
+
+  /// Where a sūrah came down, in the word a muṣḥaf's own heading uses.
+  String _place(String? place) => switch (place) {
+        'makkah' => kMakki,
+        'madinah' => kMadani,
+        _ => '—',
+      };
 
   void _go(int page, [String? verseKey]) {
     if (page < 1 || page > widget.pages) return;
@@ -116,10 +126,12 @@ class _IndexScreenState extends State<IndexScreen> {
             controller: _query,
             onChanged: _search,
             textInputAction: TextInputAction.search,
+            style: tBody(),
             decoration: InputDecoration(
               isDense: true,
               border: InputBorder.none,
-              hintText: 'search the wording',
+              hintText: kSearchHint,
+              hintStyle: tBody(_inkMute),
               suffixIcon: _searching
                   ? IconButton(
                       icon: const Icon(Icons.close, size: 18),
@@ -135,12 +147,15 @@ class _IndexScreenState extends State<IndexScreen> {
               ? null
               : TabBar(
                   labelColor: _accent,
+                  unselectedLabelColor: _inkMute,
                   indicatorColor: _accent,
-                  tabs: [
-                    Tab(text: 'Sūrah'),
-                    Tab(text: "Juz'"),
-                    Tab(text: 'Marked'),
-                    Tab(text: 'Missed'),
+                  labelStyle: tBody(_accent),
+                  unselectedLabelStyle: tBody(_inkMute),
+                  tabs: const [
+                    Tab(text: kTabSurahs),
+                    Tab(text: kTabJuz),
+                    Tab(text: kTabMarked),
+                    Tab(text: kTabMissed),
                   ],
                 ),
         ),
@@ -159,19 +174,7 @@ class _IndexScreenState extends State<IndexScreen> {
   }
 
   Widget _results() {
-    if (_hits.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            'Nothing found. The search matches the imlaei spelling — the one '
-            'you type — not the Uthmānī rasm on the page.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: _inkMute, height: 1.5),
-          ),
-        ),
-      );
-    }
+    if (_hits.isEmpty) return _empty(Icons.search_off_outlined, kNothingFound);
     return ListView.separated(
       itemCount: _hits.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
@@ -184,18 +187,35 @@ class _IndexScreenState extends State<IndexScreen> {
             textDirection: TextDirection.rtl,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontFamily: 'Amiri', fontSize: 18, height: 1.9, color: _ink),
+            style: tQuranSmall(),
           ),
           subtitle: Text(
-            '${h.surahNameAr}  ${h.verseKey}  ·  page ${h.page}',
+            '${h.surahNameAr}  ${arDigits(h.verseKey)}  ·  ${pageN(h.page)}',
             textDirection: TextDirection.rtl,
-            style: TextStyle(fontSize: 11, color: _inkMute),
+            style: tLabel(),
           ),
         );
       },
     );
   }
+
+  /// A list with nothing in it yet. All four of these used to be a wall of
+  /// grey sentence with no shape to it; a mark and a rule give the eye
+  /// somewhere to land and say that the emptiness is expected rather than a
+  /// failure to load.
+  Widget _empty(IconData mark, String says) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(mark, size: 34, color: _inkMute.withValues(alpha: 0.5)),
+              const SizedBox(height: 16),
+              Text(says, textAlign: TextAlign.center, style: tCaption(_inkMute)),
+            ],
+          ),
+        ),
+      );
 
   Widget _surahList() {
     return Column(
@@ -209,19 +229,16 @@ class _IndexScreenState extends State<IndexScreen> {
               return ListTile(
                 dense: true,
                 leading: SizedBox(
-                  width: 26,
-                  child: Text('${s.number}',
-                      style:
-                          TextStyle(fontFamily: 'monospace', color: _inkMute)),
+                  width: 28,
+                  child: Text(ar(s.number),
+                      textAlign: TextAlign.center, style: tLabel()),
                 ),
                 title: Text(s.nameAr,
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                        fontFamily: 'Amiri', fontSize: 19, color: _ink)),
+                    textDirection: TextDirection.rtl, style: tQuranSmall()),
                 subtitle: Text(
-                  '${s.ayahCount} āyāt  ·  ${s.place ?? "?"}  ·  '
-                  'page ${s.firstPage}',
-                  style: const TextStyle(fontSize: 11),
+                  '${ayatN(s.ayahCount)}  ·  ${_place(s.place)}  ·  '
+                  '${pageN(s.firstPage)}',
+                  style: tLabel(),
                 ),
                 onTap: () => _go(s.firstPage),
               );
@@ -232,30 +249,40 @@ class _IndexScreenState extends State<IndexScreen> {
     );
   }
 
+  /// The way to a page by its number, which is how anyone who knows the
+  /// muṣḥaf reaches a page.
+  ///
+  /// The controller is a field, not a local. It used to be built inside this
+  /// method, so every rebuild of the tab -- a keystroke in the search box, a
+  /// theme change, a returning keyboard -- threw away the one holding what had
+  /// been typed and made a fresh empty one. The number vanished as you typed
+  /// it, and the controller leaked on each pass.
   Widget _pageJump() {
-    final controller = TextEditingController();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
       child: Row(
         children: [
           Expanded(
             child: TextField(
-              controller: controller,
+              controller: _jump,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               textInputAction: TextInputAction.go,
+              style: tBody(),
               onSubmitted: (v) => _go(int.tryParse(v) ?? 0),
               decoration: InputDecoration(
                 isDense: true,
-                labelText: 'Page 1–${widget.pages}',
+                labelText: kPageField(widget.pages),
+                labelStyle: tCaption(_inkMute),
                 border: const OutlineInputBorder(),
               ),
             ),
           ),
           const SizedBox(width: 8),
           FilledButton(
-            onPressed: () => _go(int.tryParse(controller.text) ?? 0),
-            child: const Text('Go'),
+            style: FilledButton.styleFrom(textStyle: tBody()),
+            onPressed: () => _go(int.tryParse(_jump.text) ?? 0),
+            child: const Text(kGo),
           ),
         ],
       ),
@@ -269,13 +296,12 @@ class _IndexScreenState extends State<IndexScreen> {
           return ListTile(
             dense: true,
             leading: SizedBox(
-              width: 26,
-              child: Text('${j.juz}',
-                  style: TextStyle(fontFamily: 'monospace', color: _inkMute)),
+              width: 28,
+              child: Text(ar(j.juz),
+                  textAlign: TextAlign.center, style: tLabel()),
             ),
-            title: Text("Juz' ${j.juz}"),
-            trailing: Text('page ${j.page}',
-                style: TextStyle(fontSize: 11, color: _inkMute)),
+            title: Text(juzN(j.juz), style: tBody()),
+            trailing: Text(pageN(j.page), style: tLabel()),
             onTap: () => _go(j.page),
           );
         },
@@ -289,17 +315,7 @@ class _IndexScreenState extends State<IndexScreen> {
   Widget _missed() {
     final missed = widget.library.missed;
     if (missed.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            'Nothing missed yet. In recall, hold the page when an āyah did '
-            'not come to you, and it is kept here.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: _inkMute, height: 1.5),
-          ),
-        ),
-      );
+      return _empty(Icons.spa_outlined, kNothingMissed);
     }
     return ListView.separated(
       itemCount: missed.length,
@@ -309,19 +325,18 @@ class _IndexScreenState extends State<IndexScreen> {
         return ListTile(
           leading: Icon(Icons.error_outline, size: 18, color: _wrong),
           title: Text(m.surahNameAr,
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontFamily: 'Amiri', fontSize: 18, color: _ink)),
+              textDirection: TextDirection.rtl, style: tQuranSmall()),
           subtitle: Text(
-              '${m.verseKey}  ·  page ${m.page}  ·  '
-              'missed ${m.count == 1 ? "once" : "${m.count} times"}',
-              style: TextStyle(fontSize: 11, color: _inkSoft)),
-          trailing: IconButton(
-            tooltip: 'Learnt it',
-            icon: const Icon(Icons.check, size: 18),
+              '${arDigits(m.verseKey)}  ·  ${pageN(m.page)}  ·  '
+              '$kMissedTally ${timesN(m.count)}',
+              style: tLabel(_inkSoft)),
+          trailing: TextButton(
+            style: TextButton.styleFrom(textStyle: tCaption()),
             onPressed: () async {
               await widget.library.clearMiss(m.verseKey);
               if (mounted) setState(() {});
             },
+            child: const Text(kLearnt),
           ),
           onTap: () => _go(m.page, m.verseKey),
         );
@@ -332,17 +347,7 @@ class _IndexScreenState extends State<IndexScreen> {
   Widget _bookmarks() {
     final marks = widget.library.bookmarks;
     if (marks.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            'Nothing marked yet. Open the controls on a page and use the '
-            'bookmark button to mark the āyah you have selected.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: _inkMute, height: 1.5),
-          ),
-        ),
-      );
+      return _empty(Icons.bookmark_border, kNothingMarked);
     }
     return ListView.separated(
       itemCount: marks.length,
@@ -352,10 +357,9 @@ class _IndexScreenState extends State<IndexScreen> {
         return ListTile(
           leading: Icon(Icons.bookmark, size: 18, color: _accent),
           title: Text(b.surahNameAr,
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontFamily: 'Amiri', fontSize: 18, color: _ink)),
-          subtitle: Text('${b.verseKey}  ·  page ${b.page}',
-              style: TextStyle(fontSize: 11, color: _inkSoft)),
+              textDirection: TextDirection.rtl, style: tQuranSmall()),
+          subtitle: Text('${arDigits(b.verseKey)}  ·  ${pageN(b.page)}',
+              style: tLabel(_inkSoft)),
           trailing: IconButton(
             icon: const Icon(Icons.close, size: 16),
             onPressed: () async {

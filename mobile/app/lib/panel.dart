@@ -8,7 +8,10 @@
 // as `pipeline.pegs` wrote them; nothing is composed in the app.
 
 import 'package:flutter/material.dart';
+
+import 'strings.dart';
 import 'theme.dart';
+import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
 // rather than constants because the light can change while the app is up.
@@ -77,19 +80,11 @@ class MutashabihatPanel extends StatelessWidget {
             ),
             Row(
               children: [
-                Text(verseKey,
-                    style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                        color: _inkMute)),
+                Text(arDigits(verseKey), style: tLabel()),
                 const SizedBox(width: 10),
                 Text(
-                  matches.isEmpty
-                      ? 'no official mutashābihāt'
-                      : '${matches.length} official '
-                          '${matches.length == 1 ? "phrase" : "phrases"}',
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500, color: _ink),
+                  matches.isEmpty ? kNoOfficial : kOfficialCount(matches.length),
+                  style: tBody(),
                 ),
               ],
             ),
@@ -98,12 +93,8 @@ class MutashabihatPanel extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Text(
-                  detected.isEmpty
-                      ? 'This āyah carries no phrase from the curated list, '
-                          'and nothing repeated was detected in it.'
-                      : 'No phrase from the curated list. What pass A detected '
-                          'is below.',
-                  style: TextStyle(fontSize: 13, color: _inkSoft, height: 1.5),
+                  detected.isEmpty ? kNothingHere : kNothingCurated,
+                  style: tCaption(),
                 ),
               ),
             // One leads. An ayah can carry five curated phrases and be at
@@ -119,16 +110,9 @@ class MutashabihatPanel extends StatelessWidget {
                     .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   tilePadding: EdgeInsets.zero,
-                  title: Text(
-                    '${matches.length - 1} more '
-                    '${matches.length == 2 ? "phrase" : "phrases"} here',
-                    style: TextStyle(fontSize: 13, color: _accent),
-                  ),
-                  subtitle: Text(
-                    'the rest of the shared wording this āyah carries, '
-                    'ranked by how far it stands from its crowd',
-                    style: TextStyle(fontSize: 11, color: _inkMute),
-                  ),
+                  title: Text(kMorePhrases(matches.length - 1),
+                      style: tBody(_accent)),
+                  subtitle: Text(kMorePhrasesGloss, style: tLabel()),
                   children: [
                     for (final m in matches.skip(1))
                       _Phrase(match: m, onJump: onJump),
@@ -141,15 +125,9 @@ class MutashabihatPanel extends StatelessWidget {
                     .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   tilePadding: EdgeInsets.zero,
-                  title: Text(
-                    '${detected.length} detected '
-                    '${detected.length == 1 ? "repeat" : "repeats"}',
-                    style: TextStyle(fontSize: 13, color: _accent),
-                  ),
-                  subtitle: Text(
-                    "this project's own pass-A detection, not the curated list",
-                    style: TextStyle(fontSize: 11, color: _inkMute),
-                  ),
+                  title: Text(kDetectedCount(detected.length),
+                      style: tBody(_accent)),
+                  subtitle: Text(kDetectedGloss, style: tLabel()),
                   children: [
                     for (final d in detected)
                       _Detected(match: d, onJump: onJump),
@@ -194,16 +172,14 @@ class _Phrase extends StatelessWidget {
           Text(
             match['text_ar'] as String,
             textDirection: TextDirection.rtl,
-            style: TextStyle(
-                fontFamily: 'Amiri', fontSize: 21, height: 1.9, color: _ink),
+            style: tQuranLead(),
           ),
           const SizedBox(height: 8),
           Text(
-            '${match['set_count']} places  ·  '
-            '${match['surah_count']} sūrahs  ·  '
-            '${match['span_len']} words',
-            style: TextStyle(
-                fontFamily: 'monospace', fontSize: 11, color: _inkMute),
+            '${places(match['set_count'] as int)}  ·  '
+            '${surahsN(match['surah_count'] as int)}  ·  '
+            '${wordsN(match['span_len'] as int)}',
+            style: tLabel(),
           ),
           if (fork != null) _Turning(fork: fork, lead: lead),
           const Divider(height: 22),
@@ -222,15 +198,8 @@ class _Phrase extends StatelessWidget {
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: EdgeInsets.zero,
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                title: Text(
-                  'the other ${elsewhere.length} '
-                  '${elsewhere.length == 1 ? "place" : "places"}',
-                  style: TextStyle(
-                      fontSize: 10,
-                      letterSpacing: 1.1,
-                      color: _inkMute,
-                      fontWeight: FontWeight.w600),
-                ),
+                title:
+                    Text(kOtherPlaces(elsewhere.length), style: tLabel()),
                 children: [
                   for (final e in elsewhere)
                     _Sibling(position: e, onJump: onJump),
@@ -256,15 +225,15 @@ class _Turning extends StatelessWidget {
   final bool lead;
 
   String _word(Map<String, Object?> way) => (way['ends_surah'] == true)
-      ? '— the sūrah ends'
+      ? kEndsSurah
       : (way['token'] as String? ?? '—');
 
   @override
   Widget build(BuildContext context) {
     final rivals = (fork['rivals'] as List).cast<Map<String, Object?>>();
-    final places = fork['places'] as int;
+    final placeCount = fork['places'] as int;
     final mine = fork['mine'] as int;
-    final odd = mine < places - mine;
+    final odd = mine < placeCount - mine;
     final shown = rivals.take(3).toList();
     final rest = rivals.skip(3).toList();
     final restPlaces = rest.fold<int>(0, (n, r) => n + (r['places'] as int));
@@ -276,29 +245,17 @@ class _Turning extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               SizedBox(
-                width: 92,
-                child: Text(label,
-                    style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10,
-                        color: here ? _accent : _inkMute)),
+                width: 76,
+                child: Text(label, style: tLabel(here ? _accent : _inkMute)),
               ),
               Expanded(
                 child: Text(word,
                     textDirection: TextDirection.rtl,
                     textAlign: TextAlign.right,
-                    style: TextStyle(
-                        fontFamily: 'Amiri',
-                        fontSize: here ? 20 : 17,
-                        height: 1.7,
-                        color: here ? _ink : _inkSoft)),
+                    style: here ? tQuranBody() : tQuranSmall(_inkSoft)),
               ),
               const SizedBox(width: 8),
-              Text('$count',
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: here ? _accent : _inkMute)),
+              Text(ar(count), style: tLabel(here ? _accent : _inkMute)),
             ],
           ),
         );
@@ -315,16 +272,11 @@ class _Turning extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            odd
-                ? 'this place goes against the other ${places - mine}'
-                : '$places places share this road',
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: odd ? _goldDeep : _inkMute),
+            odd ? kGoesAgainst(placeCount - mine) : kShareRoad(placeCount),
+            style: tCaption(odd ? _goldDeep : _inkMute),
           ),
           way(
-              'here',
+              kHere,
               _word({'token': fork['turn'], 'ends_surah': fork['ends_surah']}),
               mine,
               true),
@@ -333,17 +285,13 @@ class _Turning extends StatelessWidget {
           // one -- what this place says -- against a scatter, and printing the
           // scatter puts the reference list back inside the card.
           for (var i = 0; i < shown.length; i++)
-            way(i == 0 ? 'elsewhere' : '', _word(shown[i]),
+            way(i == 0 ? kElsewhere : '', _word(shown[i]),
                 shown[i]['places'] as int, false),
           if (rest.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 6, left: 92),
-              child: Text(
-                '${rest.length} other ${rest.length == 1 ? "way" : "ways"}, '
-                '${restPlaces == rest.length ? "one place each" : "$restPlaces places"}',
-                style: TextStyle(
-                    fontFamily: 'monospace', fontSize: 10, color: _inkMute),
-              ),
+              padding: const EdgeInsetsDirectional.only(top: 6, start: 76),
+              child:
+                  Text(kOtherWays(rest.length, restPlaces), style: tLabel()),
             ),
         ],
       ),
@@ -363,8 +311,7 @@ class _Peg extends StatelessWidget {
     if (peg == null) {
       return Padding(
         padding: EdgeInsets.symmetric(vertical: 4),
-        child: Text('no ḍābiṭ verified for this position',
-            style: TextStyle(fontSize: 12, color: _inkMute)),
+        child: Text(kNoPegShort, style: tCaption(_inkMute)),
       );
     }
 
@@ -382,17 +329,10 @@ class _Peg extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(peg['kind'] as String,
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 9.5,
-                      letterSpacing: 0.8,
-                      color: _gold,
-                      fontWeight: FontWeight.w700)),
+              Text(peg['kind'] as String, style: tLabel(_gold)),
               const Spacer(),
-              Text('strength ${peg['strength']}',
-                  style: TextStyle(
-                      fontFamily: 'monospace', fontSize: 9.5, color: _inkMute)),
+              Text('$kPegStrength ${ar(peg['strength'] as int)}',
+                  style: tLabel()),
             ],
           ),
           const SizedBox(height: 6),
@@ -400,12 +340,7 @@ class _Peg extends StatelessWidget {
           Text(
             peg['text_ar'] as String,
             textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontFamily: 'Amiri',
-              fontSize: isHere ? 16 : 14,
-              height: 1.85,
-              color: isHere ? _goldDeep : _inkSoft,
-            ),
+            style: tQuranSmall(isHere ? _goldDeep : _inkSoft),
           ),
         ],
       ),
@@ -435,22 +370,12 @@ class _Sibling extends StatelessWidget {
             Row(
               children: [
                 Text(position['surah_name_ar'] as String,
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                        fontFamily: 'Amiri', fontSize: 15, color: _ink)),
+                    textDirection: TextDirection.rtl, style: tQuranSmall()),
                 const SizedBox(width: 8),
-                Text(key,
-                    style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        color: _inkMute)),
+                Text(arDigits(key), style: tLabel()),
                 const Spacer(),
                 if (page != null)
-                  Text('page $page  ›',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: _accent,
-                          fontWeight: FontWeight.w600)),
+                  Text('${pageN(page)}  ‹', style: tCaption(_accent)),
               ],
             ),
             const SizedBox(height: 4),
@@ -487,16 +412,14 @@ class _Detected extends StatelessWidget {
           Text(
             match['span_text'] as String,
             textDirection: TextDirection.rtl,
-            style: TextStyle(
-                fontFamily: 'Amiri', fontSize: 18, height: 1.85, color: _ink),
+            style: tQuranSmall(),
           ),
           const SizedBox(height: 6),
           Text(
-            '${match['occurrence_count']} occurrences  \u00b7  '
-            '${match['span_len']} words'
-            '${match['cross_surah'] == true ? "  \u00b7  crosses a surah" : ""}',
-            style: TextStyle(
-                fontFamily: 'monospace', fontSize: 10, color: _inkMute),
+            '${repeatsN(match['occurrence_count'] as int)}  \u00b7  '
+            '${wordsN(match['span_len'] as int)}'
+            '${match['cross_surah'] == true ? "  \u00b7  $kCrossesSurah" : ""}',
+            style: tLabel(),
           ),
           for (final d in dawabit)
             Padding(
@@ -506,22 +429,13 @@ class _Detected extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(d['rule_code'] as String,
-                          style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 9.5,
-                              letterSpacing: 0.8,
-                              color: _gold,
-                              fontWeight: FontWeight.w700)),
+                      Text(d['rule_code'] as String, style: tLabel(_gold)),
                       const SizedBox(width: 8),
                       if (d['verified'] == true)
                         Icon(Icons.check, size: 12, color: _accent),
                       const Spacer(),
-                      Text('strength ${d['strength']}',
-                          style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 9.5,
-                              color: _inkMute)),
+                      Text('$kPegStrength ${ar(d['strength'] as int)}',
+                          style: tLabel()),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -529,11 +443,7 @@ class _Detected extends StatelessWidget {
                   Text(
                     d['text_ar'] as String,
                     textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                        fontFamily: 'Amiri',
-                        fontSize: 15,
-                        height: 1.8,
-                        color: _inkSoft),
+                    style: tQuranSmall(_inkSoft),
                   ),
                 ],
               ),
@@ -548,9 +458,11 @@ class _Detected extends StatelessWidget {
                   ActionChip(
                     visualDensity: VisualDensity.compact,
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    label: Text('${p['surah_name_ar']} ${p['verse_key']}',
+                    label: Text(
+                        '${p['surah_name_ar']} '
+                        '${arDigits(p['verse_key'] as String)}',
                         textDirection: TextDirection.rtl,
-                        style: const TextStyle(fontSize: 11)),
+                        style: tLabel(_ink)),
                     onPressed: p['page'] == null
                         ? null
                         : () =>
