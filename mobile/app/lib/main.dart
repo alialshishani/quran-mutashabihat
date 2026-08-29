@@ -26,6 +26,7 @@ import 'library.dart';
 import 'panel.dart';
 import 'strings.dart';
 import 'theme.dart';
+import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
 // rather than constants because the light can change while the app is up.
@@ -185,19 +186,55 @@ class _LoaderState extends State<Loader> {
     return FutureBuilder<CommonDatabase>(
       future: _db,
       builder: (context, snap) {
+        // The corpus is the longest wait the app ever makes anyone sit
+        // through, and it is the only moment it has to itself. It used to
+        // spend that moment on a bare spinner, and spend the failure on the
+        // exception's toString -- a stack trace shown to a reciter.
         if (snap.hasError) {
           return Scaffold(
+            backgroundColor: _paper,
             body: Center(
               child: Padding(
                 padding: const EdgeInsets.all(32),
-                child: Text('${snap.error}'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.menu_book_outlined, size: 40, color: _inkMute),
+                    const SizedBox(height: 16),
+                    Text(kLoadFailedTitle,
+                        textAlign: TextAlign.center, style: tTitle()),
+                    const SizedBox(height: 8),
+                    Text(kLoadFailedGloss,
+                        textAlign: TextAlign.center,
+                        style: tCaption(palette.inkMute)),
+                  ],
+                ),
               ),
             ),
           );
         }
         if (!snap.hasData) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+          return Scaffold(
+            backgroundColor: _paper,
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(kAppName, style: tDisplay(_gold)),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: 96,
+                    child: LinearProgressIndicator(
+                      minHeight: 2,
+                      backgroundColor: palette.line,
+                      color: _gold,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(kLoading, style: tLabel()),
+                ],
+              ),
+            ),
           );
         }
         return HomeShell(
@@ -367,14 +404,11 @@ class _HomeShellState extends State<HomeShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Muṣḥaf',
-                      style: TextStyle(
-                          fontFamily: 'Amiri', fontSize: 26, color: _ink)),
+                  Text(kAppName, style: tDisplay()),
                   const SizedBox(height: 2),
                   Text(
-                    page == null ? 'mutashābihāt' : 'page $page of 604',
-                    style: TextStyle(
-                        fontFamily: 'monospace', fontSize: 11, color: _inkMute),
+                    page == null ? kNavForks : '${pageN(page)} من ${ar(604)}',
+                    style: tLabel(),
                   ),
                 ],
               ),
@@ -382,58 +416,40 @@ class _HomeShellState extends State<HomeShell> {
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.list),
-              title: const Text('Index and search'),
-              subtitle: const Text("Sūrah, juzʾ, marked, missed"),
+              title: Text(kIndexAndSearch, style: tBody()),
+              subtitle: Text(kIndexGloss, style: tCaption(_inkMute)),
               onTap: () {
                 Navigator.of(context).pop();
                 _openIndex();
               },
             ),
             const Divider(height: 1),
-            Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
-              child: Text('RECALL',
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                      letterSpacing: 1.2,
-                      color: _inkMute)),
-            ),
+            _section(kSectionRecall),
             SwitchListTile(
               value: _stopAtForks,
               onChanged: _setStopAtForks,
-              title: const Text('Stop at forks'),
-              subtitle: const Text(
-                  'Hold back the word a shared road turns on, instead of '
-                  'covering the āyah whole.'),
+              title: Text(kStopAtForks, style: tBody()),
+              subtitle: Text(kStopAtForksGloss, style: tCaption(_inkMute)),
             ),
             const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
-              child: Text('LIGHT',
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                      letterSpacing: 1.2,
-                      color: _inkMute)),
-            ),
+            _section(kSectionLight),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
               child: SegmentedButton<ThemeChoice>(
                 showSelectedIcon: false,
-                segments: const [
+                segments: [
                   ButtonSegment(
                       value: ThemeChoice.light,
-                      icon: Icon(Icons.light_mode_outlined),
-                      label: Text('Day')),
+                      icon: const Icon(Icons.light_mode_outlined),
+                      label: Text(kLightDay)),
                   ButtonSegment(
                       value: ThemeChoice.dark,
-                      icon: Icon(Icons.dark_mode_outlined),
-                      label: Text('Night')),
+                      icon: const Icon(Icons.dark_mode_outlined),
+                      label: Text(kLightNight)),
                   ButtonSegment(
                       value: ThemeChoice.system,
-                      icon: Icon(Icons.brightness_auto_outlined),
-                      label: Text('Auto')),
+                      icon: const Icon(Icons.brightness_auto_outlined),
+                      label: Text(kLightAuto)),
                 ],
                 selected: {widget.choice},
                 onSelectionChanged: (s) => widget.onChoice(s.first),
@@ -444,6 +460,14 @@ class _HomeShellState extends State<HomeShell> {
       ),
     );
   }
+
+  /// The head of a group in the drawer. It used to be an English word in
+  /// tracked-out monospace capitals; Arabic has neither capitals nor room for
+  /// tracking, so the grouping is carried by the rule above it and by ink.
+  Widget _section(String label) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+        child: Text(label, style: tLabel()),
+      );
 
   /// The four destinations. Floating over the muṣḥaf it is translucent and
   /// shadowed, like the controls at the head of the page, so the line beneath
@@ -459,22 +483,26 @@ class _HomeShellState extends State<HomeShell> {
         NavigationDestination(
           icon: Icon(Icons.menu_book_outlined),
           selectedIcon: Icon(Icons.menu_book),
-          label: 'Muṣḥaf',
+          label: kNavMushaf,
         ),
         NavigationDestination(
           icon: Icon(Icons.visibility_off_outlined),
           selectedIcon: Icon(Icons.visibility_off),
-          label: 'Recall',
+          label: kNavRecall,
         ),
+        // Not `call_split`, which is a version-control branch and reads as
+        // one. Two roads leaving a shared one is what this screen is about.
         NavigationDestination(
-          icon: Icon(Icons.call_split_outlined),
-          selectedIcon: Icon(Icons.call_split),
-          label: 'Forks',
+          icon: Icon(Icons.alt_route_outlined),
+          selectedIcon: Icon(Icons.alt_route),
+          label: kNavForks,
         ),
+        // Not `school`, a mortarboard: what the drill asks for is repetition,
+        // not a qualification.
         NavigationDestination(
-          icon: Icon(Icons.school_outlined),
-          selectedIcon: Icon(Icons.school),
-          label: 'Drill',
+          icon: Icon(Icons.model_training_outlined),
+          selectedIcon: Icon(Icons.model_training),
+          label: kNavDrill,
         ),
       ],
     );
@@ -837,7 +865,8 @@ class MushafViewState extends State<MushafView> {
     final surahs =
         ((doc?['surahs'] as List?) ?? const []).cast<Map<String, Object?>>();
     final juz = doc?['juz'];
-    final marked = _selected != null && widget.library.has(_selected!);
+    final markKey = _markKey;
+    final marked = markKey != null && widget.library.has(markKey);
 
     return Positioned(
       left: 0,
@@ -878,33 +907,32 @@ class MushafViewState extends State<MushafView> {
                         children: [
                           Text(
                             surahs.isEmpty
-                                ? 'Page $_page'
+                                ? pageN(_page)
                                 : surahs
                                     .map((x) => x['name_ar'] as String)
                                     .join('  ·  '),
                             textDirection: TextDirection.rtl,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontFamily: 'Amiri', fontSize: 17, color: _ink),
+                            style: tTitle(),
                           ),
                           Text(
-                            'page $_page'
-                            '${juz == null ? "" : "   ·   juz $juz"}'
-                            '${_selected == null ? "" : "   ·   $_selected"}',
-                            style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 10,
-                                color: _inkMute),
+                            '${pageN(_page)}'
+                            '${juz == null ? "" : "   ·   ${juzN(juz as int)}"}'
+                            '${_selected == null ? "" : "   ·   ${arDigits(_selected!)}"}',
+                            style: tLabel(),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      tooltip: _selected == null
-                          ? 'Select an āyah to bookmark it'
-                          : (marked ? 'Remove bookmark' : 'Bookmark this āyah'),
-                      onPressed: _selected == null ? null : _toggleBookmark,
+                      // Never disabled. It used to be, with a tooltip to say
+                      // why -- and a tooltip wants a hover, which a phone has
+                      // no way to give. With nothing selected it marks the
+                      // first āyah of the page, which is what someone
+                      // bookmarking a page means anyway.
+                      tooltip: marked ? kBookmarkRemove : kBookmarkAdd,
+                      onPressed: _toggleBookmark,
                       icon:
                           Icon(marked ? Icons.bookmark : Icons.bookmark_border),
                       color: marked ? _gold : null,
@@ -928,25 +956,24 @@ class MushafViewState extends State<MushafView> {
                       // page goes badly -- and the part you can do without.
                       Expanded(
                         child: Text(
-                          '$_given of ${_stops.length} given'
-                          '${widget.library.missCount == 0 ? "" : "   ·   ${widget.library.missCount} missed"}',
+                          kGivenOf(_given, _stops.length) +
+                              (widget.library.missCount == 0
+                                  ? ''
+                                  : '   ·   $kMissedTally ${ar(widget.library.missCount)}'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                              color: _inkMute),
+                          style: tLabel(),
                         ),
                       ),
                       TextButton(
                         style: _rowButton,
                         onPressed: _given >= _stops.length ? null : _revealAll,
-                        child: const Text('Show all'),
+                        child: const Text(kShowAll),
                       ),
                       TextButton(
                         style: _rowButton,
                         onPressed: _frontier == 0 ? null : _hideAll,
-                        child: const Text('Cover again'),
+                        child: const Text(kCoverAgain),
                       ),
                       const SizedBox(width: 4),
                     ],
@@ -962,15 +989,30 @@ class MushafViewState extends State<MushafView> {
   /// Two buttons and a count on one phone-width line: the ordinary button
   /// padding does not fit, and a button that has been squeezed out of the row
   /// is worse than a tight one.
-  static final ButtonStyle _rowButton = TextButton.styleFrom(
-    padding: const EdgeInsets.symmetric(horizontal: 8),
-    minimumSize: const Size(0, 36),
-    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    visualDensity: VisualDensity.compact,
-  );
+  /// The style carries the type, not the child, so that the disabled colour
+  /// the button computes for itself is the one that lands -- a colour set on
+  /// the child would win over it and a dead button would look live.
+  static ButtonStyle get _rowButton => TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(0, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        textStyle: tCaption(),
+        foregroundColor: palette.accent,
+      );
+
+  /// What the bookmark button acts on: the selected āyah, or -- when nothing
+  /// is selected -- the first on the page, since someone reaching for the
+  /// bookmark with no āyah chosen is marking the page.
+  String? get _markKey {
+    if (_selected != null) return _selected;
+    final ayat = (_doc?['ayat'] as List?)?.cast<Map<String, Object?>>();
+    if (ayat == null || ayat.isEmpty) return null;
+    return ayat.first['verse_key'] as String;
+  }
 
   Future<void> _toggleBookmark() async {
-    final key = _selected;
+    final key = _markKey;
     final doc = _doc;
     if (key == null || doc == null) return;
     final ayat = (doc['ayat'] as List).cast<Map<String, Object?>>();
@@ -1089,7 +1131,7 @@ class MushafViewState extends State<MushafView> {
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$key marked missed'),
+        content: Text(kMarkedMissed(key)),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
       ),
