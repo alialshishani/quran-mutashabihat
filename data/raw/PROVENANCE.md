@@ -60,15 +60,55 @@ Qur'anic text is taken from it, since the corpus already has the text from QUL r
 
 `pipeline.glyphs` binds the codes to the corpus by position and refuses to write if the
 two disagree about which **page** a token prints on. They are independent records of the
-same 1405H typesetting, and across all 604 pages they disagree about three things, all
+same 1405H typesetting, and across all 604 pages they disagree about a handful of things,
 recorded as notes rather than errors:
 
-- **2 words** at a line boundary (13:37 word 9, 36:52 word 11) that the font and the QUL
-  layout put on different lines. The glyph is cut to fill the line the font puts it on,
-  so the font's placement is the one that renders, and it is the one stored.
-- **3 āyāt** (2:181, 8:6, 13:37) where the font sets a word pair as one two-glyph token
-  that the Uthmānī source splits. The merge never crosses an āyah, so nothing keyed by
-  āyah loses by it.
+- **4 words** at a line boundary (8:6 word 11, 13:37 word 9, 36:52 word 11) that the code
+  file and the QUL layout put on different lines. The **layout** is used. The code file's
+  `line_number` is metadata, not the cut: measuring each line's glyph advances in the
+  page's own font settles it, and on pages 177 and 443 the code file's placement puts a
+  glyph on the line above the one it is cut for. That sets the line ~9% over the measure
+  and — since a page takes its one type size from its widest line — every other line on
+  the page short of it.
+- **3 āyāt** (2:181, 8:6, 13:37) where the code file sets `بَعْدَ مَا` as one token that
+  the Uthmānī source splits. Where the token carries two glyphs they go one to each word;
+  at 13:37 it carries one, and `مَا` is set as part of its neighbour and has no glyph row
+  of its own. `pipeline.glyphs` finds the join by the pair itself, not by "the first token
+  carrying two glyphs" — two glyphs is also the ordinary way to write a word that trails a
+  waqf sign, and 13:37 has one of those four words earlier in the same āyah.
+- **1 token straddling a line break**: 38:24's `وَأَنَابَ ۩` on page 454, where the word
+  closes line 11 and the sajdah sign opens line 12. One token cannot carry two lines in
+  the code file, so the trailing glyph is emitted as its own row with `kind = 'sign'` —
+  neither a word nor an āyah marker. `SIGN_OPENS_NEXT_LINE` in `pipeline/glyphs.py` names
+  the one place.
+
+### Page 254 — open, and one word of it does not print
+
+Measuring every line of every page against its own font, 603 pages set within about 1% of
+their measure. Page 254 does not: lines 6, 7, 8, 13, 14 and 15 run between 6% under and
+16% over.
+
+The layout is not the culprit. `lines` reproduces the vendored QUL v1 ranges for this page
+exactly — line 6 is source 34294–34302, line 7 is 34303–34315, and so on for all fifteen.
+What is short is the code file: it gives 13:37 nineteen word tokens for the āyah's twenty
+words, one of them carrying two glyphs, so twenty glyphs for twenty words only if the
+token that carries two is spread across two of them. It is not: the two are `عَرَبِيًّۭا`
+and the waqf sign it trails, four words earlier. So `بَعْدَ مَا` shares one glyph, and
+**`مَا` does not print on the page at all**. Two independent renderings of this page set it
+as its own word.
+
+Fitting the line boundaries to the measure lands lines 1–14 within 0.6% and leaves line 15
+6% short, which is a shape and not a cause. Left as it is rather than fitted: the muṣḥaf's
+line breaks belong to a record, not to an optimiser.
+
+**V1 cannot set this page.** The print breaks the line between `بَعْدَ` and `مَا`, and in V1
+those two words are one glyph — the break falls inside something indivisible, so no line
+assignment expresses it. The V2 codes give the pair two glyphs (`ﱿﲀ` against V1's `ﮏ`).
+Measured in the V2 font for the page, with `بَعْدَ` closing line 6 and `مَا` opening line 7,
+every line of 254 sets within 2.2% of the measure and thirteen of the fifteen within 1.6%.
+So the page is a V1 defect with a V2 remedy, and the remedy is the whole migration in
+`docs/MUSHAF.md` "Next", not a patch: page and line are stamped on the words, so switching
+means `pipeline.ingest --rebuild` and everything downstream.
 
 ### Licence — unresolved, and more sharply than for the text
 

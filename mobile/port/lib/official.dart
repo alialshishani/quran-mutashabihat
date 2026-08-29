@@ -38,7 +38,7 @@ class Words {
     if (!missing) return;
 
     for (final row in _db.select(
-      'SELECT word_id, surah, ayah, word_pos, text_uthmani '
+      'SELECT word_id, surah, ayah, word_pos, text_uthmani, text_norm '
       'FROM words WHERE word_id BETWEEN ? AND ?',
       [first, last],
     )) {
@@ -135,6 +135,10 @@ Map<String, Object?> position(
             'word_id': row['word_id'],
             'word_pos': row['word_pos'],
             'text': row['text_uthmani'],
+            // What two spellings of one word are compared on. The curated
+            // list groups by root, so a caller that wants to know whether two
+            // places really say the same word has to be able to ask.
+            'norm': row['text_norm'],
             'in_span': start <= (row['word_id'] as int) &&
                 (row['word_id'] as int) <= end,
           },
@@ -195,6 +199,10 @@ Map<String, Object?> _forkOf(Stand s) => {
       'others': s.others,
       'turn': s.turn,
       'ends_surah': s.endsSurah,
+      // The last word every place on this road still says alike. The curated
+      // span can stop short of it, so a panel that wants to print what each
+      // place says *after* the road cannot get the split from the span alone.
+      'road_end': s.roadEnd,
       'danger': s.danger,
       'rivals': [
         for (final r in s.rivals)

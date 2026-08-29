@@ -187,6 +187,102 @@ class MutashabihatPanel extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------- the column
+//
+// A curated phrase set the way a teacher sets it on a board: the road once,
+// then every place that takes it, each with what it says after the road runs
+// out. The tails all begin at the same measure, so the differences read down a
+// column -- which is the thing a reciter came for -- instead of having to be
+// assembled out of counts and prose.
+//
+// The one thing a column of tails cannot survive is tails that hang off
+// different words, and the curated list is full of them: QUL groups by the
+// root of a word rather than its lettering, so أَطِيعُوا۟ ٱللَّهَ وَٱلرَّسُولَ,
+// يُطِعِ ٱللَّهَ وَرَسُولَهُۥ and أَطَعْنَا ٱللَّهَ وَأَطَعْنَا are one entry of
+// it, twenty places wide. Setting يُدْخِلْهُ جَنَّٰتٍ beside فَإِن تَوَلَّوْا۟
+// says they are two ways out of one road. They are not: they are two roads.
+//
+// So the column is cut to the places whose road ends on the same word this one
+// does -- see `_agreement` -- and the rest are named for what they are, behind
+// a disclosure, in their own wording.
+//
+// Nothing here is composed. Every word is `words.text_uthmani` as `position()`
+// in port/lib/official.dart handed it over, compared on its `text_norm` and
+// printed in its own orthography.
+
+/// The words of a position's āyah(s), in order. `position()` returns the whole
+/// āyah around the span, which is what makes a tail available at all.
+List<Map<String, Object?>> _wordsOf(Map<String, Object?> position) => [
+      for (final a in (position['ayat'] as List).cast<Map<String, Object?>>())
+        ...(a['words'] as List).cast<Map<String, Object?>>(),
+    ];
+
+/// `words.text_norm`, which is what two spellings of one word are compared on.
+/// The muṣḥaf's own lettering is what gets printed; this is only ever read.
+String _norm(Map<String, Object?> word) =>
+    (word['norm'] as String?) ?? word['text'] as String;
+
+/// The last word this place still says together with its siblings.
+///
+/// The curated span can stop short of that -- 83 of the 809 phrases keep
+/// agreeing past their own end -- so the span's end is the fallback, for a
+/// position with no fork, and not the answer.
+int _roadEndOf(Map<String, Object?> position) =>
+    ((position['fork'] as Map<String, Object?>?)?['road_end'] as int?) ??
+    position['end_word_id'] as int;
+
+/// The words of this place's road: its own span, and whatever it goes on
+/// saying past the end of it.
+List<Map<String, Object?>> _roadOf(Map<String, Object?> position) {
+  final start = position['start_word_id'] as int;
+  final end = _roadEndOf(position);
+  return [
+    for (final w in _wordsOf(position))
+      if ((w['word_id'] as int) >= start && (w['word_id'] as int) <= end) w,
+  ];
+}
+
+/// How many words two roads say alike, counted back from the fork.
+///
+/// Backwards is the only direction that means anything. A tail hangs off the
+/// last word of its road, so two places whose roads end on different words
+/// have nothing to compare: what they say next answers a different question.
+/// Zero is the whole test -- a place that shares not even the last word is on
+/// another road, however the curated list grouped it.
+int _agreement(List<Map<String, Object?>> a, List<Map<String, Object?>> b) {
+  var n = 0;
+  while (n < a.length &&
+      n < b.length &&
+      _norm(a[a.length - 1 - n]) == _norm(b[b.length - 1 - n])) {
+    n++;
+  }
+  return n;
+}
+
+/// What this place says once the road has run out: the fork word first, then
+/// the rest of its āyah.
+///
+/// Empty where the road runs to the end of the āyah. There the muṣḥaf's next
+/// word is the parting and `after` carries it -- but only when the road ends
+/// where the span does, since otherwise `after` is a word still inside the
+/// road. `after` is null at a sūrah seam, and then the place has no next word.
+List<Map<String, Object?>> _tailOf(Map<String, Object?> position) {
+  final end = _roadEndOf(position);
+  final tail = [
+    for (final w in _wordsOf(position))
+      if ((w['word_id'] as int) > end) w,
+  ];
+  if (tail.isNotEmpty) return tail;
+  final after = position['after'] as String?;
+  if (after != null && end == position['end_word_id']) {
+    return [
+      {'text': after},
+    ];
+  }
+  return const [];
+}
+
+/// One curated phrase: the road, and every place actually on it.
 class _Phrase extends StatelessWidget {
   const _Phrase({required this.match, required this.onJump, this.lead = false});
 
@@ -198,10 +294,45 @@ class _Phrase extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final positions = (match['positions'] as List).cast<Map<String, Object?>>();
     final here = (match['here'] as List).cast<Map<String, Object?>>();
-    final elsewhere = (match['elsewhere'] as List).cast<Map<String, Object?>>();
-    final fork =
-        here.isEmpty ? null : here.first['fork'] as Map<String, Object?>?;
+    if (here.isEmpty) return const SizedBox.shrink();
+
+    final road = _roadOf(here.first);
+
+    // Cut the list to the places whose road ends where this one's does, and
+    // keep how far back the agreement runs: it is where the road being read
+    // actually begins, and the words before it are this place's own.
+    final onRoad = <Map<String, Object?>>[];
+    final elsewhere = <Map<String, Object?>>[];
+    var agreed = road.length;
+    for (final p in positions) {
+      if (p['is_query'] == true) {
+        onRoad.add(p);
+        continue;
+      }
+      final n = _agreement(road, _roadOf(p));
+      if (n == 0) {
+        elsewhere.add(p);
+      } else {
+        onRoad.add(p);
+        if (n < agreed) agreed = n;
+      }
+    }
+    if (onRoad.length == 1) agreed = road.length;
+
+    // Standing in the minority at the fork is what makes a road dangerous, and
+    // it is the one count worth printing. Counted over the places actually on
+    // this road, not over the curated entry: `forks` was built on the entry, so
+    // its own tally counts places that never say this wording at all.
+    final mineWord = _firstTail(here.first);
+    final mine = onRoad.where((p) => _firstTail(p) == mineWord).length;
+    final odd = onRoad.length > 1 && mine < onRoad.length - mine;
+
+    final otherPegs = [
+      for (final p in onRoad)
+        if (p['is_query'] != true && p['peg'] != null) p,
+    ];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 18),
@@ -214,28 +345,67 @@ class _Phrase extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // The shared wording itself.
-          Text(
-            match['text_ar'] as String,
+          // The road, in this place's own lettering -- the curated entry's
+          // text_ar is a representative and can be wording this place never
+          // says. Muted at the head, where the others do not follow it in.
+          Text.rich(
+            TextSpan(children: [
+              for (var i = 0; i < road.length; i++)
+                TextSpan(
+                  text: i == 0 ? '${road[i]['text']}' : ' ${road[i]['text']}',
+                  style: i < road.length - agreed
+                      ? tQuranLead(_inkMute)
+                      : tQuranLead(),
+                ),
+            ]),
             textDirection: TextDirection.rtl,
-            style: tQuranLead(),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${places(match['set_count'] as int)}  ·  '
-            '${surahsN(match['surah_count'] as int)}  ·  '
-            '${wordsN(match['span_len'] as int)}',
-            style: tLabel(),
-          ),
-          if (fork != null) _Turning(fork: fork, lead: lead),
+          if (odd)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                kGoesAgainst(onRoad.length - mine),
+                style: tCaption(lead ? _goldDeep : _inkMute),
+              ),
+            ),
           const Divider(height: 22),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Text(kWhatFollows, style: tLabel()),
+          ),
 
-          // The peg for the position sitting in the āyah that was tapped.
-          for (final h in here) _Peg(position: h, isHere: true),
+          // Every place on the road, in the muṣḥaf's own order, and all of
+          // them. A column is a thing read down; a column with a disclosure in
+          // the middle of it is a list again, which is what this card used to
+          // be.
+          for (final p in onRoad) _Place(position: p, onJump: onJump),
 
-          // Where else the road runs. It is the evidence behind the counts
-          // above, not the thing to be read: a reciter who wants to know why
-          // this place is hard has been told already, in one line.
+          // The ḍābiṭ for this place, under the column rather than in front of
+          // it: the column shows what parts the places, the ḍābiṭ says how to
+          // hold it, and in that order.
+          if (here.first['peg'] != null) ...[
+            const SizedBox(height: 8),
+            _Peg(position: here.first, isHere: true),
+          ],
+          if (otherPegs.isNotEmpty)
+            Theme(
+              data:
+                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                title: Text(kOtherPegs, style: tLabel()),
+                children: [
+                  for (final p in otherPegs) _OtherPeg(position: p),
+                ],
+              ),
+            ),
+
+          // The places the curated entry gathered that do not say this wording.
+          // They are kept, because the list is the source and dropping rows of
+          // it silently would be the app overruling it -- but they are named
+          // for what they are and set in their own words, not as tails.
           if (elsewhere.isNotEmpty)
             Theme(
               data:
@@ -244,11 +414,11 @@ class _Phrase extends StatelessWidget {
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: EdgeInsets.zero,
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                title:
-                    Text(kOtherPlaces(elsewhere.length), style: tLabel()),
+                title: Text(kOtherRoads(elsewhere.length), style: tBody(_accent)),
+                subtitle: Text(kOtherRoadsGloss, style: tLabel()),
                 children: [
-                  for (final e in elsewhere)
-                    _Sibling(position: e, onJump: onJump),
+                  for (final p in elsewhere)
+                    _OtherRoad(position: p, onJump: onJump),
                 ],
               ),
             ),
@@ -258,88 +428,182 @@ class _Phrase extends StatelessWidget {
   }
 }
 
-/// Where the road this place is on parts, and which way this place goes.
+/// The normalised first word of a place's tail: what it says at the fork.
+String? _firstTail(Map<String, Object?> position) {
+  final tail = _tailOf(position);
+  return tail.isEmpty ? null : _norm(tail.first);
+}
+
+/// One place on the road, as a row of the column.
 ///
-/// The road is what several places say alike; the fork is the first word at
-/// which they stop agreeing. Nothing in the road says which way to go, so this
-/// is the whole of what a reciter has to hold -- and the count beside each way
-/// is why: the mouth takes the way the most places take.
-class _Turning extends StatelessWidget {
-  const _Turning({required this.fork, required this.lead});
+/// Gutter, then tail, then the way there. The gutter is a fixed measure and
+/// every row carries the same padding -- including the one washed gold -- so
+/// the tails all begin at the same x and the eye can run down them.
+class _Place extends StatelessWidget {
+  const _Place({required this.position, required this.onJump});
 
-  final Map<String, Object?> fork;
-  final bool lead;
+  final Map<String, Object?> position;
+  final void Function(int page, String verseKey) onJump;
 
-  String _word(Map<String, Object?> way) => (way['ends_surah'] == true)
-      ? kEndsSurah
-      : (way['token'] as String? ?? '—');
+  /// How much of the road to set before the fork.
+  ///
+  /// A fork word alone is a word out of the air. Three carries the run-up a
+  /// reciter actually has in the mouth when the parting arrives, and where the
+  /// places do not agree that far back it is the third word that shows it --
+  /// أَطِيعُوا۟ against يُطِعِ against وَأَطِعْنَ, each above its own tail.
+  static const int _leadIn = 3;
 
   @override
   Widget build(BuildContext context) {
-    final rivals = (fork['rivals'] as List).cast<Map<String, Object?>>();
-    final placeCount = fork['places'] as int;
-    final mine = fork['mine'] as int;
-    final odd = mine < placeCount - mine;
-    final shown = rivals.take(3).toList();
-    final rest = rivals.skip(3).toList();
-    final restPlaces = rest.fold<int>(0, (n, r) => n + (r['places'] as int));
+    final here = position['is_query'] == true;
+    final page = position['page'] as int?;
+    final key = position['verse_key'] as String;
+    final tail = _tailOf(position);
+    final road = _roadOf(position);
+    final lead = road.length <= _leadIn
+        ? road
+        : road.sublist(road.length - _leadIn);
 
-    Widget way(String label, String word, int count, bool here) => Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              SizedBox(
-                width: 76,
-                child: Text(label, style: tLabel(here ? _accent : _inkMute)),
-              ),
-              Expanded(
-                child: Text(word,
-                    textDirection: TextDirection.rtl,
-                    textAlign: TextAlign.right,
-                    style: here ? tQuranBody() : tQuranSmall(_inkSoft)),
-              ),
-              const SizedBox(width: 8),
-              Text(ar(count), style: tLabel(here ? _accent : _inkMute)),
-            ],
-          ),
-        );
-
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      decoration: BoxDecoration(
-        color: odd && lead ? _goldSoft : _surface,
-        border: Border.all(color: odd && lead ? _goldBright : _surfaceAlt),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            odd ? kGoesAgainst(placeCount - mine) : kShareRoad(placeCount),
-            style: tCaption(odd ? _goldDeep : _inkMute),
-          ),
-          way(
-              kHere,
-              _word({'token': fork['turn'], 'ends_surah': fork['ends_surah']}),
-              mine,
-              true),
-          // The ways the crowd takes, biggest first, and only the first few.
-          // A road that parts eight ways is not eight things to hold: it is
-          // one -- what this place says -- against a scatter, and printing the
-          // scatter puts the reference list back inside the card.
-          for (var i = 0; i < shown.length; i++)
-            way(i == 0 ? kElsewhere : '', _word(shown[i]),
-                shown[i]['places'] as int, false),
-          if (rest.isNotEmpty)
-            Padding(
-              padding: const EdgeInsetsDirectional.only(top: 6, start: 76),
-              child:
-                  Text(kOtherWays(rest.length, restPlaces), style: tLabel()),
+    return InkWell(
+      onTap: page == null ? null : () => onJump(page, key),
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        margin: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        decoration: BoxDecoration(
+          color: here ? _goldSoft : null,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  '${position['surah_name_ar']} ${arDigits(key)}',
+                  textDirection: TextDirection.rtl,
+                  style: tLabel(here ? _accent : _inkMute),
+                ),
+                const Spacer(),
+                if (page != null)
+                  Text('${pageN(page)}  ‹', style: tLabel(_accent)),
+              ],
             ),
-        ],
+            const SizedBox(height: 2),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                // The run-up, in a measure of its own so that every fork word
+                // below begins at the same x. Aligned to the end of the slot,
+                // which in a right-to-left line is its left edge, so what
+                // falls off when the run-up is long is the word furthest from
+                // the fork -- the one that matters least.
+                SizedBox(
+                  width: 132,
+                  child: Text(
+                    lead.map((w) => w['text']).join(' '),
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.end,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.fade,
+                    style: tQuranSmall(_inkMute),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: tail.isEmpty
+                      ? Text(
+                          position['after'] == null
+                              ? kEndsSurah
+                              : kNothingDropped,
+                          textDirection: TextDirection.rtl,
+                          textAlign: TextAlign.right,
+                          style: tCaption(_inkMute),
+                        )
+                      : Text.rich(
+                          TextSpan(children: [
+                            // The fork word: the first thing this place says
+                            // that its siblings may not. On the row that is
+                            // already washed gold the ink alone carries it --
+                            // a wash on a wash marks nothing.
+                            TextSpan(
+                              text: '${tail.first['text']}',
+                              style: here
+                                  ? tQuranSmall(_goldDeep)
+                                  : tQuranSmall(_goldDeep)
+                                      .copyWith(backgroundColor: _goldSoft),
+                            ),
+                            for (final w in tail.skip(1))
+                              TextSpan(
+                                text: ' ${w['text']}',
+                                style: tQuranSmall(here ? _ink : _inkSoft),
+                              ),
+                          ]),
+                          textDirection: TextDirection.rtl,
+                          textAlign: TextAlign.right,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A place the curated entry gathered whose road ends on another word.
+///
+/// Set in its own wording rather than as a tail, because a tail of it would be
+/// answering a question nobody asked: what follows a road this place is not on.
+class _OtherRoad extends StatelessWidget {
+  const _OtherRoad({required this.position, required this.onJump});
+
+  final Map<String, Object?> position;
+  final void Function(int page, String verseKey) onJump;
+
+  @override
+  Widget build(BuildContext context) {
+    final page = position['page'] as int?;
+    final key = position['verse_key'] as String;
+
+    return InkWell(
+      onTap: page == null ? null : () => onJump(page, key),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            SizedBox(
+              width: 104,
+              child: Text(
+                '${position['surah_name_ar']} ${arDigits(key)}',
+                textDirection: TextDirection.rtl,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: tLabel(),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                position['span_text'] as String,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: tQuranSmall(_inkSoft),
+              ),
+            ),
+            const SizedBox(width: 6),
+            if (page != null) Text('‹', style: tCaption(_accent)),
+          ],
+        ),
       ),
     );
   }
@@ -356,14 +620,14 @@ class _Peg extends StatelessWidget {
     final peg = position['peg'] as Map<String, Object?>?;
     if (peg == null) {
       return Padding(
-        padding: EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Text(kNoPegShort, style: tCaption(_inkMute)),
       );
     }
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(top: 4, bottom: 4),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: isHere ? _goldSoft : _surface,
@@ -373,14 +637,7 @@ class _Peg extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(pegKind(peg['kind'] as String), style: tLabel(_gold)),
-              const Spacer(),
-              Text('$kPegStrength ${arPercent(peg['strength'] as num)}',
-                  style: tLabel()),
-            ],
-          ),
+          Text(pegKind(peg['kind'] as String), style: tLabel(_gold)),
           const SizedBox(height: 6),
           // pegs.text_ar, exactly as pipeline.pegs wrote it.
           Text(
@@ -394,40 +651,30 @@ class _Peg extends StatelessWidget {
   }
 }
 
-class _Sibling extends StatelessWidget {
-  const _Sibling({required this.position, required this.onJump});
+/// A sibling's ḍābiṭ, behind a disclosure. Reference, not the answer -- the
+/// answer is the column.
+class _OtherPeg extends StatelessWidget {
+  const _OtherPeg({required this.position});
 
   final Map<String, Object?> position;
-  final void Function(int page, String verseKey) onJump;
 
   @override
   Widget build(BuildContext context) {
-    final page = position['page'] as int?;
-    final key = position['verse_key'] as String;
-
-    return InkWell(
-      onTap: page == null ? null : () => onJump(page, key),
-      borderRadius: BorderRadius.circular(6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(position['surah_name_ar'] as String,
-                    textDirection: TextDirection.rtl, style: tQuranSmall()),
-                const SizedBox(width: 8),
-                Text(arDigits(key), style: tLabel()),
-                const Spacer(),
-                if (page != null)
-                  Text('${pageN(page)}  ‹', style: tCaption(_accent)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            _Peg(position: position, isHere: false),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(position['surah_name_ar'] as String,
+                  textDirection: TextDirection.rtl, style: tQuranSmall()),
+              const SizedBox(width: 8),
+              Text(arDigits(position['verse_key'] as String), style: tLabel()),
+            ],
+          ),
+          _Peg(position: position, isHere: false),
+        ],
       ),
     );
   }

@@ -25,19 +25,29 @@ import argparse
 import json
 import sqlite3
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data" / "quran.db"
 CODES = ROOT / "data" / "raw" / "qcf-v1-codes"
 
+# A token can straddle a line break: the word ends one line and the sign that
+# trails it opens the next. The code file carries one line per token and cannot
+# say so, and the muṣḥaf does it in one place — 38:24 on page 454, where the
+# word is `وَأَنَابَ` and the sign is the sajdah ۩ that opens line 12. Left whole
+# on line 11 it sets that line 4.8% over the measure and line 12 5.3% under;
+# split, both land within 0.3% of the page, which is the band every other line
+# on 454 sits in. Keyed by the token's own verse key and position in the code
+# file, so it names the one place rather than describing a rule.
+SIGN_OPENS_NEXT_LINE = {("38:24", 32)}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS glyphs (
   page      INTEGER NOT NULL,
   line      INTEGER NOT NULL,
   ordinal   INTEGER NOT NULL,   -- render order along the line
-  kind      TEXT NOT NULL,      -- word | end
+  kind      TEXT NOT NULL,      -- word | end | sign
   word_id   INTEGER,            -- NULL on an āyah marker
   verse_key TEXT NOT NULL,
   code_v1   TEXT NOT NULL,
@@ -88,38 +98,148 @@ def build(
     seen_words: set[int] = set()
     ordinals: dict[tuple[int, int], int] = defaultdict(int)
 
+    # Where the corpus splits a pair the code file joined, the code file has one
+    # word token fewer than the āyah has words, and every position after the
+    # join is offset by one. Three āyāt are like this — 2:181, 8:6 and 13:37 —
+    # and the cause is the same in all three: `بَعْدَ مَا`, written as one token
+    # by the source the codes come from and as two by the Uthmānī one. Binding
+    # by the token's own position would hand every later word of those āyāt its
+    # neighbour's glyph and leave the last word of the āyah with none.
+    #
+    # The join is found by the pair itself rather than by "the first token in
+    # the āyah that carries two glyphs": two glyphs is the ordinary way to write
+    # a word that trails a waqf sign, and 13:37 has one of those four words
+    # before its join.
+    corpus_len: dict[tuple[int, int], int] = {
+        (row["surah"], row["ayah"]): row["n"]
+        for row in con.execute(
+            "SELECT surah, ayah, COUNT(*) AS n FROM words GROUP BY surah, ayah"
+        )
+    }
+    source_len: Counter[str] = Counter()
     for path in files:
+        for token in load_page(path):
+            if token["kind"] == "word":
+                source_len[token["verse_key"]] += 1
+
+    normalised: dict[tuple[int, int], list[str]] = defaultdict(list)
+    for row in con.execute(
+        "SELECT surah, ayah, text_norm FROM words ORDER BY surah, ayah, word_pos"
+    ):
+        normalised[(row["surah"], row["ayah"])].append(row["text_norm"])
+
+    # verse_key -> the corpus position of `بعد`, whose token covers `ما` too.
+    join_at: dict[str, int] = {}
+    for key, count in source_len.items():
+        surah, ayah = (int(part) for part in key.split(":"))
+        if corpus_len.get((surah, ayah), 0) != count + 1:
+            continue
+        words = normalised[(surah, ayah)]
+        for index in range(len(words) - 1):
+            if words[index] == "بعد" and words[index + 1] == "ما":
+                join_at[key] = index + 1
+                break
+        else:
+            complaints.append(
+                f"{key}: the corpus has {corpus_len[(surah, ayah)]} words to the "
+                f"code file's {count}, and the extra one is not `بعد ما`"
+            )
+
+    for path in files:
+        offset = 0
+        current = None
         for token in load_page(path):
             key = token["verse_key"]
             surah, ayah = (int(part) for part in key.split(":"))
-            # The glyph is cut to fill the line the font puts it on, so where the
-            # font's record and the layout table disagree about which line a word
-            # sits on, the font's is the one that renders correctly. The
-            # disagreement is still worth saying out loud.
-            page, line = token["page"], token["line"]
+            if key != current:
+                current, offset = key, 0
+            page = token["page"]
 
             if token["kind"] == "word":
-                found = word_at.get((surah, ayah, token["position"]))
-                if found is None:
-                    complaints.append(
-                        f"{key} word {token['position']}: no such word in the corpus"
+                # A token can carry more than one glyph. Ordinarily that is one
+                # word the font sets in two slots — a word and the waqf sign
+                # after it — and the codes stay together on the one row. At the
+                # join they are the two words, and one goes to each; where the
+                # join has only a single glyph the second word has none of its
+                # own and is set as part of its neighbour, which is what the
+                # muṣḥaf does with it.
+                at_join = join_at.get(key) == token["position"] + offset
+                # A code is one glyph per character. Where a token carries two,
+                # the code file writes them together or with a space between —
+                # both forms occur, and the space is a separator in the record,
+                # not a glyph on the line.
+                codes = list(token["code"].replace(" ", ""))
+                whole = "".join(codes)
+                parts = codes if at_join and len(codes) > 1 else [whole]
+                wraps = (key, token["position"]) in SIGN_OPENS_NEXT_LINE
+                if wraps:
+                    if len(codes) != 2:
+                        complaints.append(
+                            f"{key} word {token['position']}: recorded as a word "
+                            f"and a sign across a line break, but it has "
+                            f"{len(codes)} glyph(s), not 2"
+                        )
+                        continue
+                    parts = codes[:1]
+
+                bound_line: int | None = None
+                for index, code in enumerate(parts):
+                    position = token["position"] + offset + index
+                    found = word_at.get((surah, ayah, position))
+                    if found is None:
+                        complaints.append(
+                            f"{key} word {position}: no such word in the corpus"
+                        )
+                        continue
+                    word_id, was_page, was_line = found
+                    if was_page != page:
+                        complaints.append(
+                            f"{key} word {position}: codes say page {page}, "
+                            f"layout says page {was_page}"
+                        )
+                        continue
+                    # The line comes from the layout, not from the code file.
+                    # The two disagree about a handful of words at a line
+                    # boundary, and where they do the layout is the one the
+                    # print bears out: on pages 177 and 443 the code file's
+                    # placement puts a glyph on the line above the one it is cut
+                    # for, which sets that line ~9% over the measure and — since
+                    # a page takes its type size from its widest line — every
+                    # other line on the page short of it.
+                    if was_line != token["line"]:
+                        notes.append(
+                            f"{key} word {position}: line {token['line']} per the "
+                            f"code file, {was_line} per the layout; the layout is used"
+                        )
+                    seen_words.add(word_id)
+                    bound_line = was_line
+                    ordinals[(page, was_line)] += 1
+                    rows.append(
+                        (
+                            page,
+                            was_line,
+                            ordinals[(page, was_line)],
+                            "word",
+                            word_id,
+                            key,
+                            code,
+                        )
                     )
-                    continue
-                word_id, was_page, was_line = found
-                if was_page != page:
-                    complaints.append(
-                        f"{key} word {token['position']}: codes say page {page}, "
-                        f"layout says page {was_page}"
+                if wraps and bound_line is not None:
+                    # The sign the word trails, on the line it opens. It is not
+                    # a word and not an āyah marker, so it is neither: it draws,
+                    # and it is not a tap target.
+                    line = bound_line + 1
+                    ordinals[(page, line)] += 1
+                    rows.append(
+                        (page, line, ordinals[(page, line)], "sign", None, key, codes[1])
                     )
-                    continue
-                if was_line != line:
-                    notes.append(
-                        f"{key} word {token['position']}: line {line} per the font, "
-                        f"{was_line} per the layout"
-                    )
-                seen_words.add(word_id)
+
+                # The join eats two corpus positions whether it had one glyph
+                # to give them or two.
+                if at_join:
+                    offset += 1
             else:
-                word_id = None
                 placed = marker_line.get(key)
                 if placed is None:
                     complaints.append(f"{key}: marker has no line in the layout")
@@ -129,15 +249,23 @@ def build(
                         f"{key} marker: codes say page {page}, layout says page {placed[0]}"
                     )
                     continue
+                line = token["line"]
                 if placed[1] != line:
                     notes.append(
                         f"{key} marker: line {line} per the font, {placed[1]} per the layout"
                     )
-
-            ordinals[(page, line)] += 1
-            rows.append(
-                (page, line, ordinals[(page, line)], token["kind"], word_id, key, token["code"])
-            )
+                ordinals[(page, line)] += 1
+                rows.append(
+                    (
+                        page,
+                        line,
+                        ordinals[(page, line)],
+                        "end",
+                        None,
+                        key,
+                        token["code"].replace(" ", ""),
+                    )
+                )
 
     # A word with no glyph of its own is one the font sets together with its
     # neighbour — a single token carrying two glyphs where the Uthmānī source
@@ -172,6 +300,12 @@ def main() -> int:
     files = sorted(CODES.glob("p*.json"), key=lambda p: int(p.stem[1:]))
     if not files:
         sys.exit(f"no code files in {CODES}; run: python -m scripts.fetch_qcf")
+
+    # The notes name āyāt and quote the muṣḥaf, and a Windows console is cp1252
+    # by default; printing them there ended the run with a UnicodeEncodeError
+    # after the write had already been committed.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
 
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row

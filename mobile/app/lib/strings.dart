@@ -242,9 +242,7 @@ const String kMorePhrasesGloss =
 String kDetectedCount(int n) =>
     '${repeatsN(n)} ${arAgree(n, "مكشوف", "مكشوفان", "مكشوفة", "مكشوفًا")}';
 const String kDetectedGloss = 'كشفُ المشروع نفسه، لا القائمة المعتمدة';
-String kOtherPlaces(int n) => '${places(n)} ${otherM(n)}';
 const String kHere = 'هنا';
-const String kElsewhere = 'وفي غيرها';
 /// The counted noun after a verb, where it is the object and accusative.
 ///
 /// The dual is where the nominative [places] goes visibly wrong -- موضعين,
@@ -265,9 +263,21 @@ String questionsGen(int n) =>
     arCount(n, 'سؤالٍ واحد', 'سؤالين', 'أسئلة', 'سؤالًا');
 
 String kGoesAgainst(int n) => 'هذا الموضع يخالف ${placesAcc(n)}';
-String kShareRoad(int n) => '${places(n)} تشترك في هذا اللفظ';
-String kOtherWays(int n, int p) =>
-    '${ways(n)} ${otherM(n)}، ${p == n ? "في كل منها موضع" : places(p)}';
+
+/// The head of the column: one row per place, each carrying what that place
+/// says once the shared wording runs out.
+const String kWhatFollows = 'وما بعده في كل موضع';
+const String kOtherPegs = 'ضوابط المواضع الأخرى';
+
+/// The places the curated entry gathered that do not say this wording at all.
+///
+/// QUL groups by the root of a word rather than its lettering, so one entry
+/// can hold أَطِيعُوا۟ ٱللَّهَ وَٱلرَّسُولَ, يُطِعِ ٱللَّهَ وَرَسُولَهُۥ and
+/// أَطَعْنَا ٱللَّهَ وَأَطَعْنَا at once. What follows those is not what follows
+/// this, so they are named rather than set in the column.
+String kOtherRoads(int n) => '${places(n)} على وجه آخر';
+const String kOtherRoadsGloss =
+    'جمعتها القائمة المعتمدة بأصل الكلمة لا بلفظها، فما بعدها لا يقاس على ما هنا.';
 const String kCrossesSurah = 'يعبر السور';
 
 // ------------------------------------------------------- the āyah's near twin

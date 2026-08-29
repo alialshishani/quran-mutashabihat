@@ -146,6 +146,18 @@ List<Map<String, Object?>> _basmalah(CommonDatabase db) {
 }
 
 /// One printed page: its lines, the tokens on each, and what repeats there.
+/// The glyph codes of one token, with nothing between them.
+///
+/// A word the font sets as two glyphs is stored as its two codes separated by
+/// a space -- `pipeline.glyphs` writes them that way, and 198 tokens are like
+/// it. That space is a separator in the record, not a glyph on the line: the
+/// KFGQPC faces carry their own side bearings, which is why every other token
+/// is set against its neighbour with nothing added between them. Left in, it
+/// sets one line of the page a word-space too wide, and since the page takes
+/// its type size from its widest line, that one space shrinks the whole page
+/// -- on 177 by 8%, with every other line then falling short of the measure.
+String? _code(String? code) => code?.replaceAll(' ', '');
+
 Map<String, Object?> mushafPage(
   CommonDatabase db,
   int page, {
@@ -252,16 +264,20 @@ Map<String, Object?> mushafPage(
           'ayah': ayah,
           'word_pos': row['word_pos'],
           'text': row['text_uthmani'],
-          'code': row['code_v1'],
+          'code': _code(row['code_v1'] as String?),
           'phrase_ids': <int>[],
         };
       } else {
         token = {
-          'kind': 'marker',
+          // `end` is an āyah marker; `sign` is a mark the font sets at the head
+          // of a line although it trails the word that closed the one before —
+          // the sajdah on page 454. Neither is a word, and neither is a tap
+          // target, but only one of them is a marker.
+          'kind': row['kind'] == 'end' ? 'marker' : 'sign',
           'verse_key': key,
           'surah': surah,
           'ayah': ayah,
-          'code': row['code_v1'],
+          'code': _code(row['code_v1'] as String?),
         };
       }
       (glyphLines[row['line'] as int] ??= []).add(token);
