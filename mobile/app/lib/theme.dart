@@ -13,6 +13,15 @@
 
 import 'package:flutter/material.dart';
 
+/// The face the chrome is set in.
+///
+/// The app speaks Arabic, so the chrome is set in the book's own face rather
+/// than in the platform's UI sans. Amiri ships Regular alone here, which is a
+/// constraint worth naming: nothing in the chrome may ask for a weight above
+/// 400, or the engine synthesises one and the joins of the naskh thicken into
+/// blots. See type.dart, which is the only place a size is chosen.
+const String kUiFace = 'Amiri';
+
 /// Which light to read by. `system` follows the platform, which is what a
 /// reader who sets their phone to dark at maghrib actually wants.
 enum ThemeChoice { light, dark, system }
@@ -166,6 +175,10 @@ ThemeData themeFor(Palette c) {
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
+    // One face for the whole of Material's own furniture -- tiles, chips,
+    // buttons, dialogs, tabs -- so that a widget the app never styles by hand
+    // still comes out in the book's face rather than in Roboto.
+    fontFamily: kUiFace,
     scaffoldBackgroundColor: c.paper,
     dividerColor: c.line,
     dividerTheme: DividerThemeData(color: c.line, space: 1, thickness: 1),
@@ -191,7 +204,8 @@ ThemeData themeFor(Palette c) {
     // a card lifted off the page like any other here, so it is coloured as one.
     snackBarTheme: SnackBarThemeData(
       backgroundColor: c.raised,
-      contentTextStyle: TextStyle(color: c.ink, fontSize: 14),
+      contentTextStyle:
+          TextStyle(fontFamily: kUiFace, color: c.ink, fontSize: 15),
       actionTextColor: c.accent,
       behavior: SnackBarBehavior.floating,
       elevation: 3,
@@ -200,8 +214,23 @@ ThemeData themeFor(Palette c) {
         side: BorderSide(color: c.line),
       ),
     ),
-    textTheme: c.dark
-        ? Typography.material2021(platform: TargetPlatform.android).white
-        : Typography.material2021(platform: TargetPlatform.android).black,
+    // Material's own scale, in the book's face, with the tracking taken out.
+    // Latin tracking on Arabic pulls joined letters apart -- it is the one
+    // typographic habit that has to be unlearned wholesale here.
+    textTheme: (c.dark
+            ? Typography.material2021(platform: TargetPlatform.android).white
+            : Typography.material2021(platform: TargetPlatform.android).black)
+        .apply(fontFamily: kUiFace)
+        .merge(const TextTheme(
+          bodyLarge: TextStyle(letterSpacing: 0),
+          bodyMedium: TextStyle(letterSpacing: 0),
+          bodySmall: TextStyle(letterSpacing: 0),
+          labelLarge: TextStyle(letterSpacing: 0),
+          labelMedium: TextStyle(letterSpacing: 0),
+          labelSmall: TextStyle(letterSpacing: 0),
+          titleLarge: TextStyle(letterSpacing: 0),
+          titleMedium: TextStyle(letterSpacing: 0),
+          titleSmall: TextStyle(letterSpacing: 0),
+        )),
   );
 }

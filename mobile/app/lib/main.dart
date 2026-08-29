@@ -24,6 +24,7 @@ import 'forks_screen.dart';
 import 'index_screen.dart';
 import 'library.dart';
 import 'panel.dart';
+import 'strings.dart';
 import 'theme.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
@@ -129,7 +130,7 @@ class _MushafAppState extends State<MushafApp> with WidgetsBindingObserver {
     palette = dark ? kDark : kLight;
 
     return MaterialApp(
-      title: 'Mushaf',
+      title: kAppName,
       debugShowCheckedModeBanner: false,
       theme: themeFor(kLight),
       darkTheme: themeFor(kDark),
@@ -138,6 +139,19 @@ class _MushafAppState extends State<MushafApp> with WidgetsBindingObserver {
         ThemeChoice.dark => ThemeMode.dark,
         ThemeChoice.system => ThemeMode.system,
       },
+      // The chrome speaks Arabic, so the chrome runs right to left: the drawer
+      // comes in from the right edge, a row reads from the right, and a list
+      // row's leading sits where an Arabic reader's eye starts.
+      //
+      // Done with a Directionality rather than by declaring a locale, because
+      // the locale route pulls in flutter_localizations for the sake of a
+      // handful of Material strings the app has replaced anyway. The wrap is
+      // inside MaterialApp, so the Navigator, its overlays -- the drawer, the
+      // bottom sheets, the snack bars -- are all under it.
+      builder: (context, child) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: Loader(
         library: widget.library,
         choice: _choice,
