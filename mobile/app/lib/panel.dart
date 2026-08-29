@@ -329,16 +329,16 @@ class _Peg extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(peg['kind'] as String, style: tLabel(_gold)),
+              Text(pegKind(peg['kind'] as String), style: tLabel(_gold)),
               const Spacer(),
-              Text('$kPegStrength ${ar(peg['strength'] as int)}',
+              Text('$kPegStrength ${arPercent(peg['strength'] as num)}',
                   style: tLabel()),
             ],
           ),
           const SizedBox(height: 6),
           // pegs.text_ar, exactly as pipeline.pegs wrote it.
           Text(
-            peg['text_ar'] as String,
+            arDigits(peg['text_ar'] as String),
             textDirection: TextDirection.rtl,
             style: tQuranSmall(isHere ? _goldDeep : _inkSoft),
           ),
@@ -429,19 +429,20 @@ class _Detected extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(d['rule_code'] as String, style: tLabel(_gold)),
+                      Text(pegKind(d['rule_code'] as String),
+                          style: tLabel(_gold)),
                       const SizedBox(width: 8),
                       if (d['verified'] == true)
                         Icon(Icons.check, size: 12, color: _accent),
                       const Spacer(),
-                      Text('$kPegStrength ${ar(d['strength'] as int)}',
+                      Text('$kPegStrength ${arPercent(d['strength'] as num)}',
                           style: tLabel()),
                     ],
                   ),
                   const SizedBox(height: 4),
                   // dawabit.text_ar, as pipeline.apply_rules wrote it.
                   Text(
-                    d['text_ar'] as String,
+                    arDigits(d['text_ar'] as String),
                     textDirection: TextDirection.rtl,
                     style: tQuranSmall(_inkSoft),
                   ),

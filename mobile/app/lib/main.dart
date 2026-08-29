@@ -317,6 +317,18 @@ class _HomeShellState extends State<HomeShell> {
   bool _chrome = false;
   late bool _stopAtForks = widget.library.stopAtForks;
 
+  /// Whether the sheet's gestures have been shown. Held here rather than in
+  /// each sheet: both are built at once inside the IndexedStack, so each read
+  /// the store in its own initState, both got `false`, and dismissing the
+  /// overlay on the muṣḥaf left recall's copy of it standing. It is one flag,
+  /// so it is kept in one place.
+  late bool _coached = widget.library.sheetCoached;
+
+  Future<void> _markCoached() async {
+    setState(() => _coached = true);
+    await widget.library.setSheetCoached();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -436,6 +448,8 @@ class _HomeShellState extends State<HomeShell> {
                 onToggleChrome: () => setState(() => _chrome = !_chrome),
                 onOpenMenu: _openMenu,
                 active: _tab == kMushaf,
+                coached: _coached,
+                onCoached: _markCoached,
               ),
               MushafView(
                 key: _recall,
@@ -445,6 +459,8 @@ class _HomeShellState extends State<HomeShell> {
                 onToggleChrome: () => setState(() => _chrome = !_chrome),
                 onOpenMenu: _openMenu,
                 active: _tab == kRecall,
+                coached: _coached,
+                onCoached: _markCoached,
                 stopAtForks: _stopAtForks,
                 recall: true,
               ),
@@ -636,6 +652,8 @@ class MushafView extends StatefulWidget {
     required this.onToggleChrome,
     required this.onOpenMenu,
     required this.active,
+    required this.coached,
+    required this.onCoached,
     this.stopAtForks = true,
     this.recall = false,
   });
@@ -652,6 +670,11 @@ class MushafView extends StatefulWidget {
 
   /// Whether recall also stops where a shared road turns. See [_cut].
   final bool stopAtForks;
+
+  /// Whether the gestures have been shown once, and how to say they have.
+  /// Held by the shell, since one telling covers both sheets.
+  final bool coached;
+  final VoidCallback onCoached;
 
   /// Whether this is the sheet on screen. Both sheets are built at once -- the
   /// shell keeps them in an IndexedStack so a tab change is not a page load --
@@ -684,10 +707,6 @@ class MushafViewState extends State<MushafView> {
   Map<String, Object?>? _doc;
   double? _em;
   String? _selected;
-
-  /// Whether the sheet's gestures still have to be shown. Read once, since
-  /// the store is a preference and this is a first-run state.
-  late bool _coached = widget.library.sheetCoached;
 
   /// In recall, the word this page is revealed through, and the points at
   /// which revealing stops. Zero is a page still covered.
@@ -917,7 +936,7 @@ class MushafViewState extends State<MushafView> {
                     ),
                   ),
                   if (widget.chrome) _controls(),
-                  if (!_coached && widget.active) _coach(),
+                  if (!widget.coached && widget.active) _coach(),
                 ],
               ),
             ),
@@ -933,7 +952,11 @@ class MushafViewState extends State<MushafView> {
   Widget _coach() {
     return Positioned.fill(
       child: ColoredBox(
-        color: palette.paper.withValues(alpha: 0.93),
+        // Near-solid. At 0.93 the page read straight through it on a dark
+        // screen -- light ink at seven per cent over near-black paper is
+        // plainly visible -- and the overlay looked like a fault rather
+        // than a message. It is a hint of the page beneath, not a veil.
+        color: palette.paper.withValues(alpha: 0.985),
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(36),
@@ -950,10 +973,7 @@ class MushafViewState extends State<MushafView> {
                 const SizedBox(height: 24),
                 FilledButton(
                   style: FilledButton.styleFrom(textStyle: tBody()),
-                  onPressed: () async {
-                    setState(() => _coached = true);
-                    await widget.library.setSheetCoached();
-                  },
+                  onPressed: widget.onCoached,
                   child: const Text(kGotIt),
                 ),
               ],

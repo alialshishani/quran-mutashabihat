@@ -38,7 +38,6 @@ Color get _gold => palette.gold;
 Color get _goldBright => palette.goldBright;
 Color get _surface => palette.surface;
 Color get _surfaceAlt => palette.surfaceAlt;
-Color get _line => palette.line;
 Color get _wrong => palette.wrong;
 
 class TodayScreen extends StatefulWidget {
@@ -111,7 +110,7 @@ class TodayScreenState extends State<TodayScreen> {
         children: [
           _resume(),
           const SizedBox(height: 12),
-          _due(summary.due),
+          _due(summary.due, mastery),
           if (missed.isNotEmpty) ...[
             const SizedBox(height: 24),
             _heading(kSectionNeedsWork),
@@ -147,11 +146,15 @@ class TodayScreenState extends State<TodayScreen> {
   /// what the muṣḥaf restores itself from -- and never said it anywhere the
   /// reciter could see before the page had already been turned to.
   Widget _resume() {
-    final page = widget.library.lastPage;
-    final where = page == null ? null : _surahAt(page);
+    // On a first run there is no last page, and the card used to fall back to
+    // the app's own name over "صفحة ١" -- a heading that says nothing about
+    // anywhere. It opens at the Fātiḥah instead, and says so.
+    final read = widget.library.lastPage;
+    final page = read ?? 1;
+    final where = _surahAt(page);
 
     return _Card(
-      onTap: () => widget.onGo(page ?? 1),
+      onTap: () => widget.onGo(page),
       fill: _raised,
       border: _surfaceAlt,
       child: Row(
@@ -160,7 +163,8 @@ class TodayScreenState extends State<TodayScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(kSectionContinue, style: tLabel()),
+                Text(read == null ? kSectionStart : kSectionContinue,
+                    style: tLabel()),
                 const SizedBox(height: 6),
                 Text(where ?? kAppName,
                     textDirection: TextDirection.rtl,
@@ -168,7 +172,7 @@ class TodayScreenState extends State<TodayScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: tQuranBody()),
                 const SizedBox(height: 2),
-                Text(pageN(page ?? 1), style: tLabel()),
+                Text(pageN(page), style: tLabel()),
               ],
             ),
           ),
@@ -193,7 +197,7 @@ class TodayScreenState extends State<TodayScreen> {
   ///
   /// A session is bounded, and the card says by how much before it is
   /// started. An open-ended "practise" is the thing nobody opens.
-  Widget _due(int due) {
+  Widget _due(int due, Mastery m) {
     if (widget.pool.isEmpty) {
       return _Card(
         fill: _surface,
@@ -210,7 +214,12 @@ class TodayScreenState extends State<TodayScreen> {
     }
 
     final nothing = due == 0;
-    final take = due == 0 ? kSessionLength : (due < kSessionLength ? due : kSessionLength);
+    // Nothing has ever been asked, so every question in the pool counts as
+    // due, and the card was opening on "٣٦٦٧ موضعًا حلَّ وقتها" -- true, and
+    // the most discouraging true thing the app could have said. A pool nobody
+    // has started is not a backlog. It is offered as one session.
+    final fresh = m.unseen == m.all;
+    final take = due == 0 || due > kSessionLength ? kSessionLength : due;
 
     return _Card(
       fill: nothing ? _surface : _accentSoft,
@@ -218,8 +227,10 @@ class TodayScreenState extends State<TodayScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(nothing ? kNothingDue : kDueNow(due),
-              style: tTitle(nothing ? _inkMute : _ink)),
+          Text(
+            nothing ? kNothingDue : (fresh ? kFirstSession : kDueNow(due)),
+            style: tTitle(nothing ? _inkMute : _ink),
+          ),
           const SizedBox(height: 4),
           Text(
             nothing ? kNothingDueGloss : kSessionOf(take),
@@ -276,6 +287,12 @@ class TodayScreenState extends State<TodayScreen> {
   /// One bar in three bands rather than three numbers in a row: what the
   /// reciter wants off this is the proportion, and a proportion is a length.
   Widget _masteryStrip(Mastery m) {
+    // `line` is the colour of a hairline, and at eight pixels tall over dark
+    // paper the untouched band simply was not there -- the strip read as a
+    // gap above a legend. The unseen band is the muted ink held well back,
+    // which is recessive without being absent.
+    final Color untouched = _inkMute.withValues(alpha: 0.28);
+
     Widget band(int n, Color fill) => n == 0
         ? const SizedBox.shrink()
         : Expanded(flex: n, child: ColoredBox(color: fill));
@@ -294,13 +311,28 @@ class TodayScreenState extends State<TodayScreen> {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(3),
+          // Both axes have to be stated, and for different reasons.
+          //
+          // Width: the Column above aligns to the start, so it hands down
+          // loose constraints, and a Row of nothing but Expanded children
+          // takes its minimum under those -- zero.
+          //
+          // Height: a Row centres on its cross axis by default, which gives
+          // its children loose vertical constraints, and a ColoredBox with no
+          // child under a loose constraint takes the smallest size allowed --
+          // zero again. Hence stretch.
+          //
+          // Neither is visible to the analyser and neither throws. The strip
+          // was laid out and painted every frame at no size at all.
           child: SizedBox(
+            width: double.infinity,
             height: 8,
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 band(m.mastered, _accent),
                 band(m.learning, _goldBright),
-                band(m.unseen, _line),
+                band(m.unseen, untouched),
               ],
             ),
           ),
@@ -312,7 +344,7 @@ class TodayScreenState extends State<TodayScreen> {
           children: [
             key(kMastered, m.mastered, _accent),
             key(kLearning, m.learning, _goldBright),
-            key(kUnseen, m.unseen, _line),
+            key(kUnseen, m.unseen, untouched),
           ],
         ),
       ],

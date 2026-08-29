@@ -226,7 +226,7 @@ class DrillScreenState extends State<DrillScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      '${ar(_at + 1)} / ${ar(_session.length)}',
+                      kGivenOf(_at + 1, _session.length),
                       style: tLabel(),
                     ),
                   ),
@@ -524,15 +524,16 @@ class DrillScreenState extends State<DrillScreen> {
                   children: [
                     Row(
                       children: [
-                        Text(peg['kind'] as String, style: tLabel(_gold)),
+                        Text(pegKind(peg['kind'] as String),
+                            style: tLabel(_gold)),
                         const Spacer(),
-                        Text('$kPegStrength ${ar(peg['strength'] as int)}',
+                        Text('$kPegStrength ${arPercent(peg['strength'] as num)}',
                             style: tLabel()),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      peg['text_ar'] as String,
+                      arDigits(peg['text_ar'] as String),
                       textDirection: TextDirection.rtl,
                       style: tQuranSmall(_goldDeep),
                     ),

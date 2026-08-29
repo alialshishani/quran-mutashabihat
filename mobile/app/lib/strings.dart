@@ -71,6 +71,14 @@ String questionsN(int n) =>
 String pageN(int n) => 'صفحة ${ar(n)}';
 String juzN(int n) => 'الجزء ${ar(n)}';
 
+/// A 0-to-1 score as a whole percentage.
+///
+/// `pegs.strength` and `dawabit.strength` are REAL, and were being printed
+/// raw: "strength 0.6375", which is a number out of the pipeline rather than
+/// anything a reciter can act on. A percentage is the same fact said in a
+/// unit people read.
+String arPercent(num v) => '${ar((v * 100).round())}٪';
+
 // ------------------------------------------------------------ the app, the bar
 
 const String kAppName = 'المصحف';
@@ -145,6 +153,20 @@ const String kEndsSurah = 'تنتهي السورة هنا';
 const String kQuestion = 'كيف يُكمل هذا الموضع؟';
 const String kLeadInBefore = 'آخر الآية التي قبلها';
 const String kPegStrength = 'قوة الضابط';
+
+/// What kind of ḍābiṭ this is.
+///
+/// `pegs.kind` and `dawabit.rule_code` are the pipeline's own enums, and they
+/// were being printed raw -- CUE_BEFORE, in Latin capitals, in the middle of
+/// an Arabic card. They are three ways of telling one place from its
+/// look-alikes, and each has a name.
+String pegKind(String kind) => switch (kind) {
+      'CUE_BEFORE' => 'بما قبله',
+      'ORDINAL_IN_SURAH' => 'بترتيبه في السورة',
+      'SOLE_IN_SURAH' => 'بانفراده في السورة',
+      'MAJORITY' => 'بالأكثر',
+      _ => kind,
+    };
 const String kNoPeg =
     'لا ضابط محقَّق لهذا الموضع — لا تُخرِج مجموعةُ الاشتباه علامةً تفصله وحدها.';
 String kSeeOnPage(int p) => 'انظرها في ${pageN(p)}';
@@ -160,6 +182,8 @@ const String kNothingDueGloss =
     'راجعتَ كل ما حلَّ وقته. عُد غدًا، أو مرِّن على ما شئت.';
 const String kDrillAnyway = 'مرِّن على أي حال';
 const String kSectionContinue = 'حيث وقفت';
+const String kSectionStart = 'ابدأ القراءة';
+const String kFirstSession = 'ابدأ من أوله';
 const String kSectionNeedsWork = 'ما تحتاج إليه';
 const String kSectionMastery = 'التمكُّن';
 const String kMastered = 'راسخ';
@@ -197,7 +221,13 @@ const String kDetectedGloss = 'كشفُ المشروع نفسه، لا القا�
 String kOtherPlaces(int n) => '${places(n)} الأخرى';
 const String kHere = 'هنا';
 const String kElsewhere = 'وفي غيرها';
-String kGoesAgainst(int n) => 'هذا الموضع يخالف ${places(n)}';
+/// After a verb the counted noun is its object, so it takes the accusative:
+/// "يخالف موضعين", not "يخالف موضعان". The nominative [places] is right where
+/// a count stands on its own, which is everywhere else.
+String placesAcc(int n) =>
+    arCount(n, 'موضعًا واحدًا', 'موضعين', 'مواضع', 'موضعًا');
+
+String kGoesAgainst(int n) => 'هذا الموضع يخالف ${placesAcc(n)}';
 String kShareRoad(int n) => '${places(n)} تشترك في هذا اللفظ';
 String kOtherWays(int n, int p) =>
     '${ways(n)} أخرى، ${p == n ? "في كل منها موضع" : places(p)}';
