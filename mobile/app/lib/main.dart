@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:quran_port/drill.dart' show DrillCandidate, drillPool;
 import 'package:quran_port/forks.dart' show roadEnds;
 import 'package:quran_port/lookup.dart' as ql;
 import 'package:quran_port/mushaf.dart';
@@ -24,8 +25,10 @@ import 'forks_screen.dart';
 import 'index_screen.dart';
 import 'library.dart';
 import 'panel.dart';
+import 'progress.dart';
 import 'strings.dart';
 import 'theme.dart';
+import 'today_screen.dart';
 import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
@@ -79,13 +82,18 @@ Future<void> main() async {
   // missed, and which light you read by. The last of those is wanted before the
   // first frame, so it is opened here rather than with the corpus.
   final library = await Library.open();
-  runApp(MushafApp(library: library));
+  // Opened here rather than inside the drill. The Today screen and the drill
+  // both read the boxes, and two copies of the store would let them disagree
+  // about what is due -- the count on the button and the session behind it.
+  final progress = await Progress.open();
+  runApp(MushafApp(library: library, progress: progress));
 }
 
 class MushafApp extends StatefulWidget {
-  const MushafApp({super.key, required this.library});
+  const MushafApp({super.key, required this.library, required this.progress});
 
   final Library library;
+  final Progress progress;
 
   @override
   State<MushafApp> createState() => _MushafAppState();
@@ -155,6 +163,7 @@ class _MushafAppState extends State<MushafApp> with WidgetsBindingObserver {
       ),
       home: Loader(
         library: widget.library,
+        progress: widget.progress,
         choice: _choice,
         onChoice: _setChoice,
       ),
@@ -166,11 +175,13 @@ class Loader extends StatefulWidget {
   const Loader({
     super.key,
     required this.library,
+    required this.progress,
     required this.choice,
     required this.onChoice,
   });
 
   final Library library;
+  final Progress progress;
   final ThemeChoice choice;
   final ValueChanged<ThemeChoice> onChoice;
 
@@ -240,6 +251,7 @@ class _LoaderState extends State<Loader> {
         return HomeShell(
           db: snap.data!,
           library: widget.library,
+          progress: widget.progress,
           choice: widget.choice,
           onChoice: widget.onChoice,
         );
@@ -248,25 +260,31 @@ class _LoaderState extends State<Loader> {
   }
 }
 
-/// Four peers, not one screen with the rest hidden behind an icon.
+/// Five destinations, with one of them home.
+///
+/// It used to be four peers and no home, so the app opened on whichever page
+/// was last read -- or on the fallback, page 89 -- and left the reciter to
+/// decide what to do. Today is first now: where you stopped, what is due, and
+/// one button. The other four are still peers among themselves.
 ///
 /// The muṣḥaf keeps the whole screen while reading -- the bar is swiped up
 /// with the rest of the chrome -- but it is a destination beside recall, the
 /// forks and the drill rather than the only way in. Vertical chrome is free
-/// here: the
-/// type is set at `width / em`, so a bar at the bottom costs no letter size,
-/// unlike a margin at the side.
+/// here: the type is set at `width / em`, so a bar at the bottom costs no
+/// letter size, unlike a margin at the side.
 class HomeShell extends StatefulWidget {
   const HomeShell({
     super.key,
     required this.db,
     required this.library,
+    required this.progress,
     required this.choice,
     required this.onChoice,
   });
 
   final CommonDatabase db;
   final Library library;
+  final Progress progress;
 
   /// Which light the reader has asked for, and how to ask for another.
   final ThemeChoice choice;
@@ -278,18 +296,38 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   final GlobalKey<ScaffoldState> _scaffold = GlobalKey<ScaffoldState>();
+  final GlobalKey<TodayScreenState> _today = GlobalKey<TodayScreenState>();
   final GlobalKey<MushafViewState> _mushaf = GlobalKey<MushafViewState>();
   final GlobalKey<MushafViewState> _recall = GlobalKey<MushafViewState>();
-  int _tab = 0;
+  final GlobalKey<DrillScreenState> _drill = GlobalKey<DrillScreenState>();
+
+  /// Built once. It is a few thousand rows off the fork tables, and both the
+  /// Today screen and the drill run on this same list.
+  late final List<DrillCandidate> _pool = drillPool(widget.db);
+
+  static const int kToday = 0;
+  static const int kMushaf = 1;
+  static const int kRecall = 2;
+  static const int kDrill = 4;
+
+  int _tab = kToday;
   bool _chrome = false;
   late bool _stopAtForks = widget.library.stopAtForks;
 
   /// Turn the muṣḥaf to a page, from wherever the reader asked.
   void _jump(int page, [String? verseKey]) {
-    setState(() => _tab = 0);
+    setState(() => _tab = kMushaf);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mushaf.currentState?.goTo(page, verseKey);
     });
+  }
+
+  /// Deal a session and show it, which is what the Today screen's one button
+  /// does.
+  void _startDrill() {
+    setState(() => _tab = kDrill);
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _drill.currentState?.startSession());
   }
 
   /// The muṣḥaf and recall are one page read two ways, so moving in either
@@ -297,11 +335,17 @@ class _HomeShellState extends State<HomeShell> {
   /// back to the page you were just tested on. One place between them, and one
   /// record of where that place is.
   GlobalKey<MushafViewState>? _sheet(int tab) =>
-      tab == 0 ? _mushaf : (tab == 1 ? _recall : null);
+      tab == kMushaf ? _mushaf : (tab == kRecall ? _recall : null);
 
   void _selectTab(int i) {
     final page = _sheet(_tab)?.currentState?.page;
     setState(() => _tab = i);
+    // Everything on Today is a reading of stores the other screens write, so
+    // coming back to it has to re-read them.
+    if (i == kToday) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _today.currentState?.refresh());
+    }
     final to = _sheet(i);
     if (to == null || page == null) return;
     WidgetsBinding.instance
@@ -336,7 +380,7 @@ class _HomeShellState extends State<HomeShell> {
     // The muṣḥaf and recall are the same sheet, read two ways, so both keep
     // the whole screen and both float their bar. The forks and the drill are
     // ordinary screens and take an ordinary bar under them.
-    final onSheet = _tab == 0 || _tab == 1;
+    final onSheet = _tab == kMushaf || _tab == kRecall;
 
     return Scaffold(
       key: _scaffold,
@@ -351,6 +395,16 @@ class _HomeShellState extends State<HomeShell> {
           IndexedStack(
             index: _tab,
             children: [
+              TodayScreen(
+                key: _today,
+                db: widget.db,
+                library: widget.library,
+                progress: widget.progress,
+                pool: _pool,
+                onGo: _jump,
+                onStartDrill: _startDrill,
+                onOpenMenu: _openMenu,
+              ),
               MushafView(
                 key: _mushaf,
                 db: widget.db,
@@ -358,7 +412,7 @@ class _HomeShellState extends State<HomeShell> {
                 chrome: _chrome,
                 onToggleChrome: () => setState(() => _chrome = !_chrome),
                 onOpenMenu: _openMenu,
-                active: _tab == 0,
+                active: _tab == kMushaf,
               ),
               MushafView(
                 key: _recall,
@@ -367,12 +421,20 @@ class _HomeShellState extends State<HomeShell> {
                 chrome: _chrome,
                 onToggleChrome: () => setState(() => _chrome = !_chrome),
                 onOpenMenu: _openMenu,
-                active: _tab == 1,
+                active: _tab == kRecall,
                 stopAtForks: _stopAtForks,
                 recall: true,
               ),
               ForksScreen(db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
-              DrillScreen(db: widget.db, onGo: _jump, onOpenMenu: _openMenu),
+              DrillScreen(
+                key: _drill,
+                db: widget.db,
+                progress: widget.progress,
+                pool: _pool,
+                onGo: _jump,
+                onOpenMenu: _openMenu,
+                onSessionEnd: () => _today.currentState?.refresh(),
+              ),
             ],
           ),
           if (onSheet && _chrome)
@@ -480,6 +542,11 @@ class _HomeShellState extends State<HomeShell> {
       selectedIndex: _tab,
       onDestinationSelected: _selectTab,
       destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.wb_twilight_outlined),
+          selectedIcon: Icon(Icons.wb_twilight),
+          label: kNavToday,
+        ),
         NavigationDestination(
           icon: Icon(Icons.menu_book_outlined),
           selectedIcon: Icon(Icons.menu_book),

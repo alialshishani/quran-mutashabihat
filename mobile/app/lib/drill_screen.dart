@@ -11,11 +11,14 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:quran_port/drill.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
 
 import 'progress.dart';
+import 'strings.dart';
 import 'theme.dart';
+import 'type.dart';
 
 // The palette in force, read by name; see theme.dart. These are getters
 // rather than constants because the light can change while the app is up.
@@ -31,7 +34,6 @@ Color get _goldBright => palette.goldBright;
 Color get _goldSoft => palette.goldSoft;
 Color get _goldDeep => palette.goldDeep;
 Color get _surface => palette.surface;
-Color get _surfaceAlt => palette.surfaceAlt;
 Color get _rule => palette.line;
 Color get _wrongTint => palette.wrong;
 Color get _wrongSoft => palette.wrongSoft;
@@ -40,160 +42,199 @@ class DrillScreen extends StatefulWidget {
   const DrillScreen({
     super.key,
     required this.db,
+    required this.progress,
+    required this.pool,
     required this.onGo,
     required this.onOpenMenu,
+    required this.onSessionEnd,
   });
 
   final CommonDatabase db;
+
+  /// Opened once by the shell. Both this screen and the Today screen read it,
+  /// and a second copy would let them disagree about what is due.
+  final Progress progress;
+  final List<DrillCandidate> pool;
+
   final void Function(int page, String verseKey) onGo;
 
   /// The same drawer the sheet opens, so the lists, the search and the
   /// settings reach every screen and not only the muṣḥaf.
   final VoidCallback onOpenMenu;
 
+  /// A session finished, so whatever else is showing a count is now stale.
+  final VoidCallback onSessionEnd;
+
   @override
-  State<DrillScreen> createState() => _DrillScreenState();
+  State<DrillScreen> createState() => DrillScreenState();
 }
 
-class _DrillScreenState extends State<DrillScreen> {
+class DrillScreenState extends State<DrillScreen> {
   final Random _rng = Random();
 
-  List<DrillCandidate> _pool = const [];
-  Progress? _progress;
-  DrillCandidate? _current;
+  /// The questions this session will ask, chosen when it is started and not
+  /// added to. A session that can grow is a session that never ends, which is
+  /// what the drill used to be.
+  List<DrillCandidate> _session = const [];
+  int _at = 0;
+
   DrillQuestion? _question;
   List<DrillOption> _shuffled = const [];
   int? _picked;
 
   int _right = 0;
-  int _wrong = 0;
+
+  /// What went wrong this session, so the end card can offer them again.
+  final List<DrillCandidate> _shaky = [];
 
   @override
   void initState() {
     super.initState();
-    _boot();
+    if (widget.pool.isNotEmpty) startSession();
   }
 
-  Future<void> _boot() async {
-    final pool = drillPool(widget.db);
-    final progress = await Progress.open();
-    if (!mounted) return;
-    setState(() {
-      _pool = pool;
-      _progress = progress;
-    });
-    _next();
-  }
+  /// Whether a session is under way, as against sitting on the end card.
+  bool get _running => _at < _session.length;
 
-  /// Due questions first, in the pool's own order -- cheapest shape first, so a
-  /// reciter meets `all_but_one` (one exception to hold) before `many` (a peg
-  /// per position). Among the due, pick at random so a session is not the same
+  /// Deal a session.
+  ///
+  /// Due questions first, in the pool's own order -- cheapest shape first, so
+  /// a reciter meets `all_but_one` (one exception to hold) before `many` (a
+  /// peg per position). Among the due, shuffled, so a session is not the same
   /// session twice.
-  void _next() {
-    final progress = _progress;
-    if (progress == null || _pool.isEmpty) return;
+  void startSession({List<DrillCandidate>? from}) {
+    if (widget.pool.isEmpty) return;
     final now = DateTime.now();
 
-    var due = _pool.where((c) => progress.isDue(c.key, now)).toList();
-    if (due.isEmpty) due = _pool;
-    // The first 60 of the due list keeps the ordering meaningful while still
-    // varying what comes up.
-    final window = due.take(60).toList();
-    final pick = window[_rng.nextInt(window.length)];
+    List<DrillCandidate> take;
+    if (from != null && from.isNotEmpty) {
+      take = [...from];
+    } else {
+      var due =
+          widget.pool.where((c) => widget.progress.isDue(c.key, now)).toList();
+      // Nothing due is not nothing to do: a reciter who has come back the same
+      // day gets the head of the pool rather than an empty screen.
+      if (due.isEmpty) due = [...widget.pool];
+      // The head of the due list keeps the ordering meaningful; the shuffle
+      // inside it keeps the session from repeating.
+      take = due.take(60).toList()..shuffle(_rng);
+      take = take.take(kSessionLength).toList();
+    }
 
+    setState(() {
+      _session = take;
+      _at = 0;
+      _right = 0;
+      _shaky.clear();
+    });
+    _ask();
+  }
+
+  /// Build the question at the cursor.
+  void _ask() {
+    if (!_running) {
+      setState(() => _question = null);
+      return;
+    }
+    final pick = _session[_at];
     final q = drillQuestion(widget.db, pick.phraseId, pick.posId);
     setState(() {
-      _current = pick;
       _question = q;
       _shuffled = [...q.options]..shuffle(_rng);
       _picked = null;
     });
   }
 
+  void _next() {
+    setState(() => _at += 1);
+    if (_running) {
+      _ask();
+    } else {
+      // The end of a session changes every count the app shows anywhere.
+      setState(() => _question = null);
+      HapticFeedback.mediumImpact();
+      widget.onSessionEnd();
+    }
+  }
+
   Future<void> _answer(DrillOption option) async {
     final q = _question;
-    final c = _current;
-    if (q == null || c == null || _picked != null) return;
+    if (q == null || _picked != null || !_running) return;
+    final c = _session[_at];
 
     final correct = q.isCorrect(option.branchId);
     setState(() {
       _picked = option.branchId;
-      correct ? _right++ : _wrong++;
+      if (correct) {
+        _right++;
+      } else {
+        _shaky.add(c);
+      }
     });
-    await _progress?.record(c.key, correct: correct);
+    // The app's one haptic used to be on failure, so the whole of what it
+    // could say with the body it said to punish. Both are answers.
+    if (correct) {
+      HapticFeedback.selectionClick();
+    } else {
+      HapticFeedback.heavyImpact();
+    }
+    await widget.progress.record(c.key, correct: correct);
   }
 
   @override
   Widget build(BuildContext context) {
     final q = _question;
-    final progress = _progress;
 
     return Scaffold(
       backgroundColor: _paper,
       appBar: AppBar(
         leading: IconButton(
-          tooltip: 'Menu',
+          tooltip: kMenu,
           onPressed: widget.onOpenMenu,
           icon: const Icon(Icons.menu),
         ),
-        title: const Text('Drill'),
-        actions: [
-          if (progress != null && _pool.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 14),
-              child: Center(
-                child: Text(
-                  '$_right / ${_right + _wrong}',
-                  style: TextStyle(
-                      fontFamily: 'monospace', fontSize: 13, color: _inkSoft),
+        title: Text(kNavDrill, style: tTitle()),
+        // Where you are in the session, as a length rather than a fraction.
+        // The score used to sit here instead, which told a reciter how he was
+        // doing and never how much was left -- and how much is left is the
+        // thing that makes a session finishable.
+        bottom: _session.isEmpty
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(2),
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOut,
+                  tween: Tween(end: _at / _session.length),
+                  builder: (_, v, __) => LinearProgressIndicator(
+                    value: v,
+                    minHeight: 2,
+                    backgroundColor: _rule,
+                    color: _accent,
+                  ),
                 ),
               ),
-            ),
-        ],
       ),
-      body: q == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-              children: [
-                _place(q),
-                const SizedBox(height: 14),
-                _road(q),
-                const SizedBox(height: 18),
-                Text('which way does it go?',
-                    style: TextStyle(fontSize: 12, color: _inkMute)),
-                const SizedBox(height: 8),
-                for (final o in _shuffled) _option(q, o),
-                if (_picked != null) ...[
-                  const SizedBox(height: 14),
-                  _answerBlock(q),
-                ],
-              ],
-            ),
-      bottomNavigationBar: q == null
+      body: widget.pool.isEmpty
+          ? _noPool()
+          : (!_running ? _endCard() : (q == null ? _waiting() : _ask3(q))),
+      bottomNavigationBar: (q == null || !_running)
           ? null
           : Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
               child: Row(
                 children: [
-                  if (progress != null)
-                    Expanded(
-                      child: Builder(builder: (_) {
-                        final s = progress.summary(
-                            _pool.map((c) => c.key), DateTime.now());
-                        return Text(
-                          '${s.due} due  ·  ${s.seen} seen  ·  '
-                          '${_pool.length} in all',
-                          style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              color: _inkMute),
-                        );
-                      }),
+                  Expanded(
+                    child: Text(
+                      '${ar(_at + 1)} / ${ar(_session.length)}',
+                      style: tLabel(),
                     ),
+                  ),
                   FilledButton(
+                    style: FilledButton.styleFrom(textStyle: tBody()),
                     onPressed: _picked == null ? null : _next,
-                    child: const Text('Next'),
+                    child: Text(
+                        _at + 1 >= _session.length ? kSessionFinish : kNext),
                   ),
                 ],
               ),
@@ -201,19 +242,109 @@ class _DrillScreenState extends State<DrillScreen> {
     );
   }
 
+  Widget _waiting() => Center(
+        child: SizedBox(
+          width: 96,
+          child: LinearProgressIndicator(
+              minHeight: 2, backgroundColor: _rule, color: _gold),
+        ),
+      );
+
+  Widget _noPool() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.model_training_outlined, size: 34, color: _inkMute),
+              const SizedBox(height: 16),
+              Text(kNoPoolTitle, style: tTitle()),
+              const SizedBox(height: 6),
+              Text(kNoPoolGloss,
+                  textAlign: TextAlign.center, style: tCaption(_inkMute)),
+            ],
+          ),
+        ),
+      );
+
+  Widget _ask3(DrillQuestion q) => ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        children: [
+          _place(q),
+          const SizedBox(height: 14),
+          _road(q),
+          const SizedBox(height: 18),
+          Text(kQuestion, style: tCaption(_inkMute)),
+          const SizedBox(height: 8),
+          for (final o in _shuffled) _option(q, o),
+          if (_picked != null) ...[
+            const SizedBox(height: 14),
+            _answerBlock(q),
+          ],
+        ],
+      );
+
+  /// The end of a session, which the drill never had.
+  ///
+  /// A count of what was right, what went back to the first box, and the two
+  /// things worth doing next. Anki's deck screen and Duolingo's end card are
+  /// the same object: the session is a contract, and this is it discharged.
+  Widget _endCard() {
+    final all = _session.length;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(kSessionDone, textAlign: TextAlign.center, style: tLabel()),
+            const SizedBox(height: 10),
+            Text(kSessionScore(_right, all),
+                textAlign: TextAlign.center,
+                style: tDisplay(_shaky.isEmpty ? _accent : _ink)),
+            const SizedBox(height: 12),
+            Text(
+              _shaky.isEmpty ? kSessionPerfect : kSessionShaky(_shaky.length),
+              textAlign: TextAlign.center,
+              style: tCaption(_inkMute),
+            ),
+            const SizedBox(height: 28),
+            if (_shaky.isNotEmpty)
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  textStyle: tBody(),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () => startSession(from: [..._shaky]),
+                child: const Text(kSessionAgain),
+              ),
+            if (_shaky.isNotEmpty) const SizedBox(height: 8),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                textStyle: tBody(),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                side: BorderSide(color: _rule),
+              ),
+              onPressed: () => startSession(),
+              child: const Text(kStartDrill),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _place(DrillQuestion q) => Row(
         children: [
           Text(q.surahNameAr,
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontFamily: 'Amiri', fontSize: 18, color: _ink)),
+              textDirection: TextDirection.rtl, style: tQuranSmall()),
           const SizedBox(width: 8),
-          Text(q.verseKey,
-              style: TextStyle(
-                  fontFamily: 'monospace', fontSize: 12, color: _inkMute)),
+          Text(arDigits(q.verseKey), style: tLabel()),
           const Spacer(),
           if (q.countInSurah > 1)
             Container(
-              margin: const EdgeInsets.only(right: 8),
+              margin: const EdgeInsetsDirectional.only(end: 8),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: _goldSoft,
@@ -221,15 +352,40 @@ class _DrillScreenState extends State<DrillScreen> {
               ),
               // For eighteen positions nothing in the wording tells them apart,
               // and which time it is in the sūrah is the reciter's only handle.
-              child: Text('${q.ordinalInSurah} of ${q.countInSurah} here',
-                  style: TextStyle(
-                      fontFamily: 'monospace', fontSize: 10, color: _gold)),
+              child: Text(kOrdinalHere(q.ordinalInSurah, q.countInSurah),
+                  style: tLabel(_gold)),
             ),
-          Text('one of ${q.positionCount}',
-              style: TextStyle(
-                  fontFamily: 'monospace', fontSize: 11, color: _inkMute)),
+          _strength(),
         ],
       );
+
+  /// Which Leitner box this question sits in, as five pips.
+  ///
+  /// The schedule has been keeping this per question since it was written and
+  /// showing it nowhere: a reciter could answer the same fork twenty times and
+  /// never learn whether the app thought he had it. Boxes 3 and 4 rest a week
+  /// and three weeks, so a filled pip is real ground held.
+  Widget _strength() {
+    if (!_running) return const SizedBox.shrink();
+    final box = widget.progress.boxOf(_session[_at].key);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < kBoxRest.length; i++)
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: 3),
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i < box ? _accent : _rule,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   /// The run-up and the road.
   ///
@@ -246,46 +402,23 @@ class _DrillScreenState extends State<DrillScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _raised,
-        border: Border.all(color: _surfaceAlt),
-        borderRadius: BorderRadius.circular(8),
+        color: _surface,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (fromPreviousAyah)
             Padding(
-              padding: EdgeInsets.only(bottom: 4),
-              child: Text('end of the āyah before',
-                  style: TextStyle(fontSize: 10, color: _inkMute)),
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(kLeadInBefore, style: tLabel()),
             ),
           Text.rich(
             TextSpan(children: [
               if (runUp != null)
-                TextSpan(
-                  text: '$runUp ',
-                  style: TextStyle(
-                      fontFamily: 'Amiri',
-                      fontSize: 19,
-                      height: 2.0,
-                      color: _inkMute),
-                ),
-              TextSpan(
-                text: q.roadAr,
-                style: TextStyle(
-                    fontFamily: 'Amiri',
-                    fontSize: 23,
-                    height: 2.0,
-                    color: _ink),
-              ),
-              TextSpan(
-                text: ' …',
-                style: TextStyle(
-                    fontFamily: 'Amiri',
-                    fontSize: 23,
-                    height: 2.0,
-                    color: _gold),
-              ),
+                TextSpan(text: '$runUp ', style: tQuranSmall(_inkMute)),
+              TextSpan(text: q.roadAr, style: tQuranLead()),
+              TextSpan(text: ' …', style: tQuranLead(_gold)),
             ]),
             textDirection: TextDirection.rtl,
           ),
@@ -309,58 +442,58 @@ class _DrillScreenState extends State<DrillScreen> {
       fill = _wrongSoft;
     }
 
+    // A right answer used to be a border colour changing, instantly, and
+    // nothing else. The card now settles into its answered state over a beat,
+    // which is the whole of the reward the drill offers and cost nothing.
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: fill,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: answered ? null : () => _answer(o),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              border: Border.all(color: border, width: answered ? 1.4 : 1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                if (answered)
-                  Icon(
-                    isAnswer
-                        ? Icons.check
-                        : (isPicked ? Icons.close : Icons.remove),
-                    size: 16,
-                    color: isAnswer ? _accent : (isPicked ? _wrongTint : _rule),
-                  ),
-                if (answered) const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    o.endsSurah
-                        ? '— the sūrah ends here —'
-                        : (o.tokenAr ?? '—'),
-                    textDirection: TextDirection.rtl,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontFamily: 'Amiri',
-                      fontSize: o.endsSurah ? 15 : 21,
-                      color: o.endsSurah ? _inkSoft : _ink,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: fill,
+          border: Border.all(color: border, width: answered ? 1.4 : 1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: answered ? null : () => _answer(o),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  if (answered)
+                    Icon(
+                      isAnswer
+                          ? Icons.check
+                          : (isPicked ? Icons.close : Icons.remove),
+                      size: 16,
+                      color:
+                          isAnswer ? _accent : (isPicked ? _wrongTint : _rule),
+                    ),
+                  if (answered) const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      o.endsSurah ? kEndsSurah : (o.tokenAr ?? '—'),
+                      textDirection: TextDirection.rtl,
+                      textAlign: TextAlign.right,
+                      style: o.endsSurah
+                          ? tCaption(_inkSoft)
+                          : tQuranLead(),
                     ),
                   ),
-                ),
-                // How many positions take this way -- only after answering, or
-                // it gives the answer away.
-                if (answered)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Text('${o.positionCount}',
-                        style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            color: _inkMute)),
-                  ),
-              ],
+                  // How many positions take this way -- only after answering,
+                  // or it gives the answer away.
+                  if (answered)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 8),
+                      child: Text(ar(o.positionCount), style: tLabel()),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -385,40 +518,23 @@ class _DrillScreenState extends State<DrillScreen> {
                 peg == null ? null : Border.all(color: _goldBright, width: 0.8),
           ),
           child: peg == null
-              ? Text(
-                  'No ḍābiṭ verified for this position — the confusion set does '
-                  'not yield a cue that holds it apart on its own.',
-                  style: TextStyle(fontSize: 12, color: _inkSoft, height: 1.5),
-                )
+              ? Text(kNoPeg, style: tCaption(_inkSoft))
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Text(peg['kind'] as String,
-                            style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 9.5,
-                                letterSpacing: 0.8,
-                                fontWeight: FontWeight.w700,
-                                color: _gold)),
+                        Text(peg['kind'] as String, style: tLabel(_gold)),
                         const Spacer(),
-                        Text('strength ${peg['strength']}',
-                            style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 9.5,
-                                color: _inkMute)),
+                        Text('$kPegStrength ${ar(peg['strength'] as int)}',
+                            style: tLabel()),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Text(
                       peg['text_ar'] as String,
                       textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                          fontFamily: 'Amiri',
-                          fontSize: 16,
-                          height: 1.9,
-                          color: _goldDeep),
+                      style: tQuranSmall(_goldDeep),
                     ),
                   ],
                 ),
@@ -426,9 +542,10 @@ class _DrillScreenState extends State<DrillScreen> {
         const SizedBox(height: 8),
         if (q.page != null)
           TextButton.icon(
+            style: TextButton.styleFrom(textStyle: tCaption()),
             onPressed: () => widget.onGo(q.page!, q.verseKey),
             icon: const Icon(Icons.menu_book_outlined, size: 16),
-            label: Text('see it on page ${q.page}'),
+            label: Text(kSeeOnPage(q.page!)),
           ),
       ],
     );

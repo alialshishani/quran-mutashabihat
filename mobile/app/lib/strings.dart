@@ -65,6 +65,8 @@ String timesN(int n) => arCount(n, 'مرة واحدة', 'مرتان', 'مرات'
 String daysN(int n) => arCount(n, 'يوم واحد', 'يومان', 'أيام', 'يومًا');
 String repeatsN(int n) =>
     arCount(n, 'تكرار واحد', 'تكراران', 'تكرارات', 'تكرارًا');
+String questionsN(int n) =>
+    arCount(n, 'سؤال واحد', 'سؤالان', 'أسئلة', 'سؤالًا');
 
 String pageN(int n) => 'صفحة ${ar(n)}';
 String juzN(int n) => 'الجزء ${ar(n)}';
@@ -171,6 +173,7 @@ const String kNoPoolGloss =
 
 // ---------------------------------------------------------------- the session
 
+String kSessionOf(int n) => 'جلسة من ${questionsN(n)}';
 const String kSessionDone = 'انتهت الجلسة';
 String kSessionScore(int right, int all) => '${ar(right)} من ${ar(all)}';
 const String kSessionAgain = 'أعد المتعثرة';
