@@ -333,21 +333,19 @@ class _HomeShellState extends State<HomeShell> {
   bool _chrome = false;
   late bool _stopAtForks = widget.library.stopAtForks;
 
-  /// Everywhere the reader has jumped from, oldest first.
+  /// Everywhere the reader has been, oldest first.
   ///
-  /// A jump is a tap that moves you somewhere discontinuous: a sibling in the
-  /// mutashābihāt panel, a position in the fork list, `انظرها في صفحة` in the
-  /// drill, a row in the index, a missed place on Today. Following one used to
-  /// be a one-way trip -- you could check the āyah the panel sent you to and
-  /// then had no way back to the page you had been reading except to remember
-  /// its number.
+  /// Two kinds of move are recorded. A jump -- a tap that sends you somewhere
+  /// discontinuous: a sibling in the mutashābihāt panel, a position in the
+  /// fork list, `انظرها في صفحة` in the drill, a row in the index, a missed
+  /// place on Today. And a change of destination, whether it came from the bar
+  /// or from the Today screen's own button. So back walks the whole path,
+  /// across destinations and within them, in the order it was walked.
   ///
-  /// Turning the page by swiping is deliberately not recorded. It is not a
-  /// jump, it is reading, and recording it would fill the stack with the act
-  /// of reading and make `back` mean `previous page` -- which the swipe in the
-  /// other direction already means. Tapping a destination in the bar is not
-  /// recorded either, for the same reason: it is where you asked to be, not
-  /// somewhere you were sent.
+  /// Turning the page by swiping is the one move deliberately left out. It is
+  /// not a move between places, it is reading, and recording it would fill the
+  /// stack with the act of reading and make `back` mean `previous page` --
+  /// which the swipe in the other direction already means.
   ///
   /// Uncapped, as asked. An entry is a tab, a page and a key, and no one can
   /// press their way to a depth that costs anything.
@@ -390,13 +388,19 @@ class _HomeShellState extends State<HomeShell> {
 
   bool get _canGoBack => _history.isNotEmpty;
 
+  /// Remember where we are standing, before a tap moves us off it.
+  ///
+  /// A move that lands where we already are must not stack an entry that goes
+  /// nowhere, or a press of back would appear to do nothing at all.
+  void _record() {
+    final here = _here();
+    if (_history.isEmpty || !_history.last.sameAs(here)) _history.add(here);
+  }
+
   /// Turn the muṣḥaf to a page, from wherever the reader asked, and remember
   /// where they were standing when they asked.
   void _jump(int page, [String? verseKey]) {
-    final here = _here();
-    // A jump that lands where we already are should not stack an entry that
-    // goes nowhere -- pressing back would then appear to do nothing.
-    if (_history.isEmpty || !_history.last.sameAs(here)) _history.add(here);
+    _record();
     setState(() => _tab = kMushaf);
     _applySystemUi(kMushaf);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -433,6 +437,7 @@ class _HomeShellState extends State<HomeShell> {
   /// Deal a session and show it, which is what the Today screen's one button
   /// does.
   void _startDrill() {
+    _record();
     setState(() => _tab = kDrill);
     _applySystemUi(kDrill);
     WidgetsBinding.instance
@@ -447,6 +452,11 @@ class _HomeShellState extends State<HomeShell> {
       tab == kMushaf ? _mushaf : (tab == kRecall ? _recall : null);
 
   void _selectTab(int i) {
+    // A NavigationBar reports a tap on the destination already showing, and
+    // that is not a move. Recording it would push a copy of where we already
+    // are, and the back after it would look broken.
+    if (i == _tab) return;
+    _record();
     final page = _sheet(_tab)?.currentState?.page;
     setState(() => _tab = i);
     _applySystemUi(i);
