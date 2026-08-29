@@ -55,6 +55,21 @@ String arCount(int n, String one, String two, String few, String many) {
   return '${ar(n)} $many';
 }
 
+/// The shape an adjective takes beside a counted noun.
+///
+/// Arabic agrees the adjective with whatever the number did to the noun: a
+/// dual noun takes a dual adjective, the plural of three to ten takes the
+/// feminine singular when the noun is not a person, and the singular
+/// accusative of eleven and up takes a singular one. "لفظان أخرى" is the
+/// particular kind of wrong that tells a reader the app was written in
+/// another language and then translated.
+String arAgree(int n, String one, String two, String few, String many) =>
+    n == 1 ? one : (n == 2 ? two : (n <= 10 ? few : many));
+
+/// "another", for a masculine noun and for a feminine one.
+String otherM(int n) => arAgree(n, 'آخر', 'آخران', 'أخرى', 'آخر');
+String otherF(int n) => arAgree(n, 'أخرى', 'أخريان', 'أخرى', 'أخرى');
+
 String places(int n) => arCount(n, 'موضع واحد', 'موضعان', 'مواضع', 'موضعًا');
 String ways(int n) => arCount(n, 'وجه واحد', 'وجهان', 'أوجه', 'وجهًا');
 String surahsN(int n) => arCount(n, 'سورة واحدة', 'سورتان', 'سور', 'سورةً');
@@ -171,7 +186,7 @@ String pegKind(String kind) => switch (kind) {
 const String kNoPeg =
     'لا ضابط محقَّق لهذا الموضع — لا تُخرِج مجموعةُ الاشتباه علامةً تفصله وحدها.';
 String kSeeOnPage(int p) => 'انظرها في ${pageN(p)}';
-String kOneOf(int n) => 'أحد ${places(n)}';
+String kOneOf(int n) => 'أحد ${placesOblique(n)}';
 String kOrdinalHere(int i, int n) => 'الـ${ar(i)} من ${ar(n)} في السورة';
 
 // ------------------------------------------------------------------ the today
@@ -198,7 +213,7 @@ const String kNoPoolGloss =
 
 // ---------------------------------------------------------------- the session
 
-String kSessionOf(int n) => 'جلسة من ${questionsN(n)}';
+String kSessionOf(int n) => 'جلسة من ${questionsOblique(n)}';
 const String kSessionDone = 'انتهت الجلسة';
 String kSessionScore(int right, int all) => '${ar(right)} من ${ar(all)}';
 const String kSessionAgain = 'أعد المتعثرة';
@@ -214,24 +229,32 @@ const String kNothingHere =
     'لا تحمل هذه الآية لفظًا من القائمة المعتمدة، ولم يُكشف فيها تكرار.';
 const String kNothingCurated =
     'لا لفظ من القائمة المعتمدة. وما كُشف مذكور أدناه.';
-String kMorePhrases(int n) => '${phrasesN(n)} أخرى هنا';
+String kMorePhrases(int n) => '${phrasesN(n)} ${otherM(n)} هنا';
 const String kMorePhrasesGloss =
     'بقية اللفظ المشترك الذي تحمله هذه الآية، مرتَّبًا بحسب بُعده عن نظائره';
-String kDetectedCount(int n) => '${repeatsN(n)} مكشوفة';
+String kDetectedCount(int n) =>
+    '${repeatsN(n)} ${arAgree(n, "مكشوف", "مكشوفان", "مكشوفة", "مكشوفًا")}';
 const String kDetectedGloss = 'كشفُ المشروع نفسه، لا القائمة المعتمدة';
-String kOtherPlaces(int n) => '${places(n)} أخرى';
+String kOtherPlaces(int n) => '${places(n)} ${otherM(n)}';
 const String kHere = 'هنا';
 const String kElsewhere = 'وفي غيرها';
-/// After a verb the counted noun is its object, so it takes the accusative:
-/// "يخالف موضعين", not "يخالف موضعان". The nominative [places] is right where
-/// a count stands on its own, which is everywhere else.
-String placesAcc(int n) =>
+/// The counted noun when it is not the subject: after a verb, where it is
+/// the object, and after a preposition, where it is genitive. Arabic spells
+/// those two the same for a dual -- موضعين, not موضعان -- so one form serves
+/// both. "تفترقان في موضعان" and "يخالف موضعان" are the same mistake.
+///
+/// The nominative [places] is right wherever a count stands on its own, which
+/// is most places.
+String placesOblique(int n) =>
     arCount(n, 'موضعًا واحدًا', 'موضعين', 'مواضع', 'موضعًا');
 
-String kGoesAgainst(int n) => 'هذا الموضع يخالف ${placesAcc(n)}';
+String questionsOblique(int n) =>
+    arCount(n, 'سؤالٍ واحد', 'سؤالين', 'أسئلة', 'سؤالًا');
+
+String kGoesAgainst(int n) => 'هذا الموضع يخالف ${placesOblique(n)}';
 String kShareRoad(int n) => '${places(n)} تشترك في هذا اللفظ';
 String kOtherWays(int n, int p) =>
-    '${ways(n)} أخرى، ${p == n ? "في كل منها موضع" : places(p)}';
+    '${ways(n)} ${otherM(n)}، ${p == n ? "في كل منها موضع" : places(p)}';
 const String kCrossesSurah = 'يعبر السور';
 
 // ------------------------------------------------------- the āyah's near twin
@@ -243,13 +266,13 @@ const String kCrossesSurah = 'يعبر السور';
 
 String kSimilarCount(int n) => '${ayatN(n)} تشبهها';
 const String kSimilarGloss = 'آيات تقرأ كهذه، وموضع افتراقها';
-String kMoreSimilar(int n) => '${ayatN(n)} أخرى تشبهها';
+String kMoreSimilar(int n) => '${ayatN(n)} ${otherF(n)} تشبهها';
 const String kIdentical = 'مطابقة لها';
 const String kIdenticalGloss =
     'الآية مكررة بنصها؛ لا يميزها إلا ما قبلها وما بعدها.';
-String kPartsIn(int n) => 'تفترقان في ${places(n)}';
+String kPartsIn(int n) => 'تفترقان في ${placesOblique(n)}';
 const String kThere = 'هناك';
-String kMorePartings(int n) => 'و${places(n)} أخرى';
+String kMorePartings(int n) => 'و${places(n)} ${otherM(n)}';
 const String kNothingDropped = '—';
 const String kNoPegShort = 'لا ضابط محقَّق لهذا الموضع';
 
