@@ -1014,29 +1014,26 @@ class MushafViewState extends State<MushafView> {
               },
               child: Stack(
                 children: [
-                  // The chrome rides the vertical axis, which nothing else
-                  // on this screen claims: every word carries its own tap
-                  // recognizer and the sheet is turned horizontally, so a tap
-                  // here would have to win an arena it loses most of the time.
-                  // A drag takes the pointer the moment it passes slop.
+                  // Every word carries its own tap recognizer, so a tap on
+                  // the sheet is a tap that missed the words -- which is the
+                  // margin, and the margin is where the bar belongs. The sheet
+                  // is turned horizontally, and a drag takes the pointer the
+                  // moment it passes slop, so the two do not meet.
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      // In recall a tap anywhere lets the next ayah through.
-                      // On the muṣḥaf the tap belongs to the words, which open
-                      // the panel, so the sheet does not take it.
-                      onTap: widget.recall ? _revealNext : null,
-                      // Held, not double-tapped: a double tap would put a
-                      // wait on every reveal while the second tap was listened
-                      // for, and the reveal is the thing done most.
-                      onLongPress: widget.recall ? _markMissed : null,
-                      // Swiped up like a blind: the bar comes from the foot of
-                      // the screen, so it is drawn up and pushed back down.
-                      onVerticalDragEnd: (d) {
-                        final v = d.primaryVelocity ?? 0;
-                        if (v.abs() < 120) return;
-                        if ((v < 0) != widget.chrome) widget.onToggleChrome();
-                      },
+                      // A tap on the page brings the bar up and puts it back.
+                      // On the muṣḥaf a tap that lands on a word opens the
+                      // panel instead: the word wins the arena, and only what
+                      // it does not claim reaches here.
+                      onTap: widget.onToggleChrome,
+                      // Held, not tapped. The reveal is the thing done most in
+                      // recall, and a tap now belongs to the bar.
+                      onLongPress: widget.recall ? _revealNext : null,
+                      // Two taps to say the āyah did not come. It is the
+                      // rarer of the two and the one worth being deliberate
+                      // about: a miss is written down.
+                      onDoubleTap: widget.recall ? _markMissed : null,
                       // Dragged like a paper page: pulling the sheet to the
                       // right brings the next page over, as it does in the
                       // muṣḥaf, so a rightward swipe advances.
@@ -1072,7 +1069,7 @@ class MushafViewState extends State<MushafView> {
   /// Shown once, over the first sheet the reciter opens.
   ///
   /// Everything on this screen is a gesture and none of them is drawn: tap for
-  /// the bar, tap to reveal, hold to mark a miss, swipe to turn the page. A
+  /// the bar, hold to reveal, two taps to mark a miss, swipe to turn the page. A
   /// gesture with no affordance is not a control, and the page was a wall on a
   /// first run. Kindle ships the same overlay for the same reason.
   Widget _coach() {

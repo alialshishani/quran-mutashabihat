@@ -128,7 +128,8 @@ const String kCoverAgain = 'استر من جديد';
 String kGivenOf(int given, int all) => '${ar(given)} من ${ar(all)}';
 const String kMissedTally = 'تعثُّر';
 String kMarkedMissed(String key) => 'سُجِّل التعثر في ${arDigits(key)}';
-const String kCoachReveal = 'المس الصفحة ليظهر ما بعدها، وأطِل المس إن تعثَّرت';
+const String kCoachReveal =
+    'أطِل المس ليظهر ما بعدها، وانقُر نقرتين إن تعثَّرت، ونقرةً لإظهار الشريط';
 const String kCoachChrome = 'المس الصفحة لإظهار الشريط';
 const String kGotIt = 'فهمت';
 
@@ -145,7 +146,7 @@ const String kNothingFound =
     'لا نتيجة. البحث يجري على الرسم الإملائي — الذي تكتبه — لا على الرسم '
     'العثماني المطبوع في الصفحة.';
 const String kNothingMissed =
-    'لا تعثُّر بعد. في التسميع، أطِل المس على الصفحة إذا لم تأتِك الآية، '
+    'لا تعثُّر بعد. في التسميع، انقُر الصفحة نقرتين إذا لم تأتِك الآية، '
     'فتُحفظ هنا.';
 const String kNothingMarked =
     'لا علامة بعد. أظهِر شريط الصفحة، واختر آية، ثم ضع عليها علامة.';
