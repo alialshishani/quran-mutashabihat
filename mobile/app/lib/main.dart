@@ -75,9 +75,12 @@ int _pageFromFragment() {
 Future<void> main() async {
   initialPage = _pageFromFragment();
   WidgetsFlutterBinding.ensureInitialized();
-  // The sheet wants every pixel: the type size is derived from the width of the
-  // text block, so chrome does not merely crowd the page, it shrinks the type.
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // Edge to edge by default, and immersive only on the sheet -- see
+  // `_applySystemUi`. This used to be immersiveSticky for the whole app, so
+  // the clock and the battery were taken from the Today screen, the index and
+  // the drill as well, which gain nothing from the pixels and lose a phone's
+  // ordinary furniture.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // The library is the small store -- where you were, what you marked, what you
   // missed, and which light you read by. The last of those is wanted before the
   // first frame, so it is opened here rather than with the corpus.
@@ -314,9 +317,27 @@ class _HomeShellState extends State<HomeShell> {
   bool _chrome = false;
   late bool _stopAtForks = widget.library.stopAtForks;
 
+  @override
+  void initState() {
+    super.initState();
+    _applySystemUi(_tab);
+  }
+
+  /// The sheet wants every pixel: its type size is derived from the width of
+  /// the text block, so system chrome does not merely crowd the page, it
+  /// shrinks the letters. Nothing else in the app is measured that way, so
+  /// nothing else gives up the status bar for it.
+  void _applySystemUi(int tab) {
+    final sheet = tab == kMushaf || tab == kRecall;
+    SystemChrome.setEnabledSystemUIMode(
+      sheet ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
+  }
+
   /// Turn the muṣḥaf to a page, from wherever the reader asked.
   void _jump(int page, [String? verseKey]) {
     setState(() => _tab = kMushaf);
+    _applySystemUi(kMushaf);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mushaf.currentState?.goTo(page, verseKey);
     });
@@ -326,6 +347,7 @@ class _HomeShellState extends State<HomeShell> {
   /// does.
   void _startDrill() {
     setState(() => _tab = kDrill);
+    _applySystemUi(kDrill);
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _drill.currentState?.startSession());
   }
@@ -340,6 +362,7 @@ class _HomeShellState extends State<HomeShell> {
   void _selectTab(int i) {
     final page = _sheet(_tab)?.currentState?.page;
     setState(() => _tab = i);
+    _applySystemUi(i);
     // Everything on Today is a reading of stores the other screens write, so
     // coming back to it has to re-read them.
     if (i == kToday) {
@@ -662,6 +685,10 @@ class MushafViewState extends State<MushafView> {
   double? _em;
   String? _selected;
 
+  /// Whether the sheet's gestures still have to be shown. Read once, since
+  /// the store is a preference and this is a first-run state.
+  late bool _coached = widget.library.sheetCoached;
+
   /// In recall, the word this page is revealed through, and the points at
   /// which revealing stops. Zero is a page still covered.
   int _frontier = 0;
@@ -890,9 +917,50 @@ class MushafViewState extends State<MushafView> {
                     ),
                   ),
                   if (widget.chrome) _controls(),
+                  if (!_coached && widget.active) _coach(),
                 ],
               ),
             ),
+    );
+  }
+
+  /// Shown once, over the first sheet the reciter opens.
+  ///
+  /// Everything on this screen is a gesture and none of them is drawn: tap for
+  /// the bar, tap to reveal, hold to mark a miss, swipe to turn the page. A
+  /// gesture with no affordance is not a control, and the page was a wall on a
+  /// first run. Kindle ships the same overlay for the same reason.
+  Widget _coach() {
+    return Positioned.fill(
+      child: ColoredBox(
+        color: palette.paper.withValues(alpha: 0.93),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(36),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.touch_app_outlined, size: 34, color: _inkMute),
+                const SizedBox(height: 18),
+                Text(
+                  widget.recall ? kCoachReveal : kCoachChrome,
+                  textAlign: TextAlign.center,
+                  style: tBody(),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  style: FilledButton.styleFrom(textStyle: tBody()),
+                  onPressed: () async {
+                    setState(() => _coached = true);
+                    await widget.library.setSheetCoached();
+                  },
+                  child: const Text(kGotIt),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -919,7 +987,20 @@ class MushafViewState extends State<MushafView> {
         height: h,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: LayoutBuilder(builder: _buildBlock),
+          // A page used to arrive by setState, which is to say instantly and
+          // with no sign that anything had happened -- the only feedback a
+          // turn gave was that the letters were different ones. It fades in
+          // now. Keyed on the page, so the tween restarts on every turn; the
+          // block itself is untouched, since the typesetting must not be
+          // scaled, clipped or re-laid by anything.
+          child: TweenAnimationBuilder<double>(
+            key: ValueKey<int>(_page),
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            builder: (_, v, child) => Opacity(opacity: v, child: child),
+            child: LayoutBuilder(builder: _buildBlock),
+          ),
         ),
       ),
     );
@@ -1161,6 +1242,10 @@ class MushafViewState extends State<MushafView> {
   void _revealNext() {
     for (final stop in _stops) {
       if (stop <= _frontier) continue;
+      // The lightest tap the platform has. Recall is done with the eyes shut
+      // as often as not, and this is the only way the sheet can say that the
+      // tap landed and there was more to give.
+      HapticFeedback.selectionClick();
       setState(() {
         _frontier = stop;
         _selected = _keyOf[stop];

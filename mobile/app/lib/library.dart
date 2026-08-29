@@ -76,6 +76,7 @@ class Library {
   static const String _missedKey = 'recall.missed.v1';
   static const String _forkStopsKey = 'recall.stopAtForks.v1';
   static const String _themeKey = 'read.theme.v1';
+  static const String _coachedKey = 'sheet.coached.v1';
 
   final SharedPreferences _prefs;
   final List<Bookmark> _bookmarks;
@@ -122,6 +123,20 @@ class Library {
   bool get stopAtForks => _prefs.getBool(_forkStopsKey) ?? true;
 
   Future<void> setStopAtForks(bool on) => _prefs.setBool(_forkStopsKey, on);
+
+  /// Whether the sheet's gestures have been shown once.
+  ///
+  /// The muṣḥaf takes the whole screen and every control on it is a gesture:
+  /// tap for the bar, tap again to reveal, hold to mark a miss, swipe to turn.
+  /// Kindle uses the same tap and ships a first-run overlay to say so, because
+  /// a control with no affordance is not a control. This app had the gestures
+  /// and not the overlay, so on a first run the page was a wall.
+  ///
+  /// One flag for both sheets: they are the same page read two ways, and being
+  /// told twice is worse than being told once.
+  bool get sheetCoached => _prefs.getBool(_coachedKey) ?? false;
+
+  Future<void> setSheetCoached() => _prefs.setBool(_coachedKey, true);
 
   /// The page last read, or null the first time the app is opened.
   int? get lastPage => _prefs.getInt(_lastPageKey);
