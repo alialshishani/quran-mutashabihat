@@ -827,6 +827,13 @@ class MushafViewState extends State<MushafView> {
   double? _em;
   String? _selected;
 
+  /// When the last tap landed, so the one after it can be told from a fresh
+  /// one. Shorter than the platform's own double-tap window: this is not a
+  /// gesture being disambiguated, it is a second tap being noticed after the
+  /// first has already been acted on.
+  DateTime? _lastTap;
+  static const Duration _missWindow = Duration(milliseconds: 260);
+
   /// In recall, the word this page is revealed through, and the points at
   /// which revealing stops. Zero is a page still covered.
   int _frontier = 0;
@@ -1022,18 +1029,18 @@ class MushafViewState extends State<MushafView> {
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      // A tap on the page brings the bar up and puts it back.
-                      // On the muṣḥaf a tap that lands on a word opens the
-                      // panel instead: the word wins the arena, and only what
-                      // it does not claim reaches here.
-                      onTap: widget.onToggleChrome,
-                      // Held, not tapped. The reveal is the thing done most in
-                      // recall, and a tap now belongs to the bar.
-                      onLongPress: widget.recall ? _revealNext : null,
-                      // Two taps to say the āyah did not come. It is the
-                      // rarer of the two and the one worth being deliberate
-                      // about: a miss is written down.
-                      onDoubleTap: widget.recall ? _markMissed : null,
+                      // The page takes every tap it can reach -- edge to edge
+                      // words on the muṣḥaf, the whole sheet in recall -- and
+                      // there is 14dp of margin, which is not a target. So the
+                      // bar cannot live on a tap: it is held for, and held for
+                      // the same way on both sheets, which is the only part of
+                      // this screen that is the same on both.
+                      onLongPress: widget.onToggleChrome,
+                      // In recall a tap lets the next āyah through, and a
+                      // second tap on its heels says it did not come. On the
+                      // muṣḥaf the words carry their own recognizers and the
+                      // sheet does not take the tap at all.
+                      onTap: widget.recall ? _tapped : null,
                       // Dragged like a paper page: pulling the sheet to the
                       // right brings the next page over, as it does in the
                       // muṣḥaf, so a rightward swipe advances.
@@ -1068,8 +1075,8 @@ class MushafViewState extends State<MushafView> {
 
   /// Shown once, over the first sheet the reciter opens.
   ///
-  /// Everything on this screen is a gesture and none of them is drawn: tap for
-  /// the bar, hold to reveal, two taps to mark a miss, swipe to turn the page. A
+  /// Everything on this screen is a gesture and none of them is drawn: hold for
+  /// the bar, tap to reveal, two taps to mark a miss, swipe to turn the page. A
   /// gesture with no affordance is not a control, and the page was a wall on a
   /// first run. Kindle ships the same overlay for the same reason.
   Widget _coach() {
@@ -1416,8 +1423,27 @@ class MushafViewState extends State<MushafView> {
         _selected = null;
       });
 
-  /// The ayah in front of you, missed. Held rather than tapped, so it cannot be
-  /// hit by the tap that reveals -- and only failure is recorded: a page that
+  /// A tap reveals; a second tap on its heels says the ayah did not come.
+  ///
+  /// Not `onDoubleTap`, which would make every reveal wait out the double-tap
+  /// window before it moved -- and the reveal is the thing done most, seventeen
+  /// times on a page. Here the first tap gives the ayah at once and the second
+  /// marks the one it just gave, which is the order a reciter works in: look,
+  /// find you did not have it, say so. The window is short enough that reading
+  /// what was revealed carries you past it.
+  void _tapped() {
+    final now = DateTime.now();
+    final last = _lastTap;
+    _lastTap = now;
+    if (last != null && now.difference(last) < _missWindow) {
+      _lastTap = null;
+      _markMissed();
+      return;
+    }
+    _revealNext();
+  }
+
+  /// The ayah in front of you, missed. Only failure is recorded: a page that
   /// went well leaves nothing behind.
   Future<void> _markMissed() async {
     final key = _selected;

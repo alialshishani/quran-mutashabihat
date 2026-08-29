@@ -129,8 +129,8 @@ String kGivenOf(int given, int all) => '${ar(given)} من ${ar(all)}';
 const String kMissedTally = 'تعثُّر';
 String kMarkedMissed(String key) => 'سُجِّل التعثر في ${arDigits(key)}';
 const String kCoachReveal =
-    'أطِل المس ليظهر ما بعدها، وانقُر نقرتين إن تعثَّرت، ونقرةً لإظهار الشريط';
-const String kCoachChrome = 'المس الصفحة لإظهار الشريط';
+    'المس الصفحة ليظهر ما بعدها، وانقُرها نقرتين إن تعثَّرت، وأطِل المس للشريط';
+const String kCoachChrome = 'أطِل المس على الصفحة لإظهار الشريط';
 const String kGotIt = 'فهمت';
 
 // ------------------------------------------------------------------ the index
