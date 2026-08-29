@@ -263,6 +263,22 @@ class _LoaderState extends State<Loader> {
   }
 }
 
+/// One place the reader has been.
+///
+/// [page] and [verseKey] are null for the destinations that are not a sheet --
+/// Today, the forks, the drill -- where the place is the screen itself and its
+/// own state is held for us by the IndexedStack.
+class Place {
+  const Place(this.tab, this.page, this.verseKey);
+
+  final int tab;
+  final int? page;
+  final String? verseKey;
+
+  bool sameAs(Place o) =>
+      tab == o.tab && page == o.page && verseKey == o.verseKey;
+}
+
 /// Five destinations, with one of them home.
 ///
 /// It used to be four peers and no home, so the app opened on whichever page
@@ -317,6 +333,26 @@ class _HomeShellState extends State<HomeShell> {
   bool _chrome = false;
   late bool _stopAtForks = widget.library.stopAtForks;
 
+  /// Everywhere the reader has jumped from, oldest first.
+  ///
+  /// A jump is a tap that moves you somewhere discontinuous: a sibling in the
+  /// mutashābihāt panel, a position in the fork list, `انظرها في صفحة` in the
+  /// drill, a row in the index, a missed place on Today. Following one used to
+  /// be a one-way trip -- you could check the āyah the panel sent you to and
+  /// then had no way back to the page you had been reading except to remember
+  /// its number.
+  ///
+  /// Turning the page by swiping is deliberately not recorded. It is not a
+  /// jump, it is reading, and recording it would fill the stack with the act
+  /// of reading and make `back` mean `previous page` -- which the swipe in the
+  /// other direction already means. Tapping a destination in the bar is not
+  /// recorded either, for the same reason: it is where you asked to be, not
+  /// somewhere you were sent.
+  ///
+  /// Uncapped, as asked. An entry is a tab, a page and a key, and no one can
+  /// press their way to a depth that costs anything.
+  final List<Place> _history = [];
+
   /// Whether the sheet's gestures have been shown. Held here rather than in
   /// each sheet: both are built at once inside the IndexedStack, so each read
   /// the store in its own initState, both got `false`, and dismissing the
@@ -346,13 +382,52 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  /// Turn the muṣḥaf to a page, from wherever the reader asked.
+  /// Where we are now, in the form the history keeps.
+  Place _here() {
+    final sheet = _sheet(_tab)?.currentState;
+    return Place(_tab, sheet?.page, sheet?.selected);
+  }
+
+  bool get _canGoBack => _history.isNotEmpty;
+
+  /// Turn the muṣḥaf to a page, from wherever the reader asked, and remember
+  /// where they were standing when they asked.
   void _jump(int page, [String? verseKey]) {
+    final here = _here();
+    // A jump that lands where we already are should not stack an entry that
+    // goes nowhere -- pressing back would then appear to do nothing.
+    if (_history.isEmpty || !_history.last.sameAs(here)) _history.add(here);
     setState(() => _tab = kMushaf);
     _applySystemUi(kMushaf);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mushaf.currentState?.goTo(page, verseKey);
     });
+  }
+
+  /// Undo one jump.
+  ///
+  /// Reached two ways, because the system gesture is invisible and a control
+  /// with no affordance is not a control: the platform's own back, and the
+  /// arrow that appears in the page's head once there is somewhere to go.
+  void _back() {
+    // With the drawer open the platform's back is closing it, and every
+    // PopScope in the route is told about that same press -- so without this
+    // one press would both shut the drawer and undo a jump.
+    if (_scaffold.currentState?.isDrawerOpen ?? false) return;
+    if (_history.isEmpty) return;
+
+    final to = _history.removeLast();
+    setState(() => _tab = to.tab);
+    _applySystemUi(to.tab);
+    if (to.tab == kToday) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _today.currentState?.refresh());
+    }
+    final sheet = _sheet(to.tab);
+    final page = to.page;
+    if (sheet == null || page == null) return;
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => sheet.currentState?.goTo(page, to.verseKey));
   }
 
   /// Deal a session and show it, which is what the Today screen's one button
@@ -410,6 +485,19 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // The platform's back undoes a jump for as long as there is one to undo.
+    // `canPop` goes true once the stack is empty, so the last press leaves the
+    // app as it always did rather than trapping the reader inside it.
+    return PopScope(
+      canPop: !_canGoBack,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _back();
+      },
+      child: _shell(),
+    );
+  }
+
+  Widget _shell() {
     // On the muṣḥaf the bar comes and goes with the rest of the chrome; on the
     // other two it is always there, because those are ordinary screens.
     // The muṣḥaf and recall are the same sheet, read two ways, so both keep
@@ -450,6 +538,9 @@ class _HomeShellState extends State<HomeShell> {
                 active: _tab == kMushaf,
                 coached: _coached,
                 onCoached: _markCoached,
+                canGoBack: _canGoBack,
+                onBack: _back,
+                onNavigate: _jump,
               ),
               MushafView(
                 key: _recall,
@@ -461,6 +552,9 @@ class _HomeShellState extends State<HomeShell> {
                 active: _tab == kRecall,
                 coached: _coached,
                 onCoached: _markCoached,
+                canGoBack: _canGoBack,
+                onBack: _back,
+                onNavigate: _jump,
                 stopAtForks: _stopAtForks,
                 recall: true,
               ),
@@ -654,6 +748,9 @@ class MushafView extends StatefulWidget {
     required this.active,
     required this.coached,
     required this.onCoached,
+    required this.canGoBack,
+    required this.onBack,
+    required this.onNavigate,
     this.stopAtForks = true,
     this.recall = false,
   });
@@ -675,6 +772,17 @@ class MushafView extends StatefulWidget {
   /// Held by the shell, since one telling covers both sheets.
   final bool coached;
   final VoidCallback onCoached;
+
+  /// Whether there is a jump to undo, and how to undo it. The stack is the
+  /// shell's -- a jump can cross destinations, and only the shell can put one
+  /// back.
+  final bool canGoBack;
+  final VoidCallback onBack;
+
+  /// A jump out of this sheet: a sibling position in the panel. Routed through
+  /// the shell rather than turned to directly, so that it is recorded like
+  /// every other jump and `back` can undo it.
+  final void Function(int page, String verseKey) onNavigate;
 
   /// Whether this is the sheet on screen. Both sheets are built at once -- the
   /// shell keeps them in an IndexedStack so a tab change is not a page load --
@@ -725,6 +833,10 @@ class MushafViewState extends State<MushafView> {
 
   /// The page this sheet is on, so the shell can put the other sheet on it.
   int get page => _page;
+
+  /// The āyah selected on it, so the shell's history can put the reader back
+  /// where they were and not merely on the right page.
+  String? get selected => _selected;
 
   /// Turn to a page and select an āyah there. Called by the shell, so the forks
   /// screen, the drill and the index can all send the reader to a place -- and
@@ -860,9 +972,7 @@ class MushafViewState extends State<MushafView> {
   /// the panel and on the forks screen does.
   void _jump(int page, String verseKey) {
     Navigator.of(context).popUntil((r) => r.isFirst);
-    _go(page).then((_) {
-      if (mounted) setState(() => _selected = verseKey);
-    });
+    widget.onNavigate(page, verseKey);
   }
 
   @override
@@ -1064,8 +1174,17 @@ class MushafViewState extends State<MushafView> {
               children: [
                 Row(
                   children: [
+                    // Only once there is somewhere to go. `arrow_back` mirrors
+                    // itself under an RTL Directionality, so it points the way
+                    // back rather than the way the text runs.
+                    if (widget.canGoBack)
+                      IconButton(
+                        tooltip: kBack,
+                        onPressed: widget.onBack,
+                        icon: const Icon(Icons.arrow_back),
+                      ),
                     IconButton(
-                      tooltip: 'Menu',
+                      tooltip: kMenu,
                       onPressed: widget.onOpenMenu,
                       icon: const Icon(Icons.menu),
                     ),

@@ -92,6 +92,7 @@ const String kNavDrill = 'التمرين';
 // ----------------------------------------------------------------- the drawer
 
 const String kMenu = 'القائمة';
+const String kBack = 'رجوع';
 const String kIndexAndSearch = 'الفهرس والبحث';
 const String kIndexGloss = 'السور، الأجزاء، ما علَّمتَه، وما تعثَّرتَ فيه';
 const String kSectionRecall = 'التسميع';
@@ -218,7 +219,7 @@ const String kMorePhrasesGloss =
     'بقية اللفظ المشترك الذي تحمله هذه الآية، مرتَّبًا بحسب بُعده عن نظائره';
 String kDetectedCount(int n) => '${repeatsN(n)} مكشوفة';
 const String kDetectedGloss = 'كشفُ المشروع نفسه، لا القائمة المعتمدة';
-String kOtherPlaces(int n) => '${places(n)} الأخرى';
+String kOtherPlaces(int n) => '${places(n)} أخرى';
 const String kHere = 'هنا';
 const String kElsewhere = 'وفي غيرها';
 /// After a verb the counted noun is its object, so it takes the accusative:
