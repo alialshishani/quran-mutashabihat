@@ -82,33 +82,23 @@ recorded as notes rather than errors:
   neither a word nor an āyah marker. `SIGN_OPENS_NEXT_LINE` in `pipeline/glyphs.py` names
   the one place.
 
-### Page 254 — open, and one word of it does not print
+### Page 254 — the code file stopped one word short
 
-Measuring every line of every page against its own font, 603 pages set within about 1% of
-their measure. Page 254 does not: lines 6, 7, 8, 13, 14 and 15 run between 6% under and
-16% over.
+The V1 code file gives 13:37 nineteen word tokens for the āyah's twenty words. The missing
+one is the last, `وَاقٍۢ`: every glyph after it on page 254 was bound to the token before
+its own, and the page's final glyph was never drawn at all. Six of the fifteen lines set
+between 5% under the measure and 16% over, and two words — `مَا` and `وَاقٍۢ` — did not
+print.
 
-The layout is not the culprit. `lines` reproduces the vendored QUL v1 ranges for this page
-exactly — line 6 is source 34294–34302, line 7 is 34303–34315, and so on for all fifteen.
-What is short is the code file: it gives 13:37 nineteen word tokens for the āyah's twenty
-words, one of them carrying two glyphs, so twenty glyphs for twenty words only if the
-token that carries two is spread across two of them. It is not: the two are `عَرَبِيًّۭا`
-and the waqf sign it trails, four words earlier. So `بَعْدَ مَا` shares one glyph, and
-**`مَا` does not print on the page at all**. Two independent renderings of this page set it
-as its own word.
+The repair is exact rather than a guess, because the codes of a page are one contiguous
+run through the font's private encoding. Across all 604 pages that run breaks in exactly
+one place and it is Unicode's own: U+FBB2–U+FBD2 is unassigned inside Arabic Presentation
+Forms-A and the encoding steps over it. So the code after any code is knowable without
+opening the font. `SHORT_BY_ONE` in `pipeline/glyphs.py` names the one āyah; the word takes
+the code after its neighbour's and the rest of the page steps up by one.
 
-Fitting the line boundaries to the measure lands lines 1–14 within 0.6% and leaves line 15
-6% short, which is a shape and not a cause. Left as it is rather than fitted: the muṣḥaf's
-line breaks belong to a record, not to an optimiser.
-
-**V1 cannot set this page.** The print breaks the line between `بَعْدَ` and `مَا`, and in V1
-those two words are one glyph — the break falls inside something indivisible, so no line
-assignment expresses it. The V2 codes give the pair two glyphs (`ﱿﲀ` against V1's `ﮏ`).
-Measured in the V2 font for the page, with `بَعْدَ` closing line 6 and `مَا` opening line 7,
-every line of 254 sets within 2.2% of the measure and thirteen of the fifteen within 1.6%.
-So the page is a V1 defect with a V2 remedy, and the remedy is the whole migration in
-`docs/MUSHAF.md` "Next", not a patch: page and line are stamped on the words, so switching
-means `pipeline.ingest --rebuild` and everything downstream.
+Every line of 254 now sets within 0.5% of the measure but the last, which lands at 2.5%,
+and all 77,432 words of the corpus have a glyph of their own — none shared, none doubled.
 
 ### Licence — unresolved, and more sharply than for the text
 

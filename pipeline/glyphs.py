@@ -32,6 +32,34 @@ ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data" / "quran.db"
 CODES = ROOT / "data" / "raw" / "qcf-v1-codes"
 
+# The glyph codes of a page are one contiguous run through the font's private
+# encoding. Across all 604 pages the run breaks in exactly one place, and it is
+# Unicode's own: U+FBB2–U+FBD2 is unassigned inside Arabic Presentation Forms-A,
+# and the encoding steps over it. So the next code after any code is knowable
+# without the font, which is what lets a missing token be filled in.
+def succ(code: str) -> str:
+    return "".join(
+        chr(0xFBD3 if ord(c) == 0xFBB1 else ord(c) + 1) for c in code
+    )
+
+
+def succ_n(code: str, times: int) -> str:
+    for _ in range(times):
+        code = succ(code)
+    return code
+
+
+# The code file stops one word short of the page here: 13:37's last word,
+# `وَاقٍۢ`, has no token of its own, so every glyph after it on page 254 is bound
+# to the token before its own and the page's last glyph is never drawn. That
+# sets six of the page's fifteen lines between 5% under the measure and 16%
+# over. The run is contiguous, so the repair is exact rather than a guess: the
+# word takes the code after its neighbour's, and the rest of the page steps up
+# by one. With it, every line of 254 sets within 0.5% of the measure but the
+# last, which lands at 2.5%.
+SHORT_BY_ONE = {"13:37"}
+
+
 # A token can straddle a line break: the word ends one line and the sign that
 # trails it opens the next. The code file carries one line per token and cannot
 # say so, and the muṣḥaf does it in one place — 38:24 on page 454, where the
@@ -132,7 +160,7 @@ def build(
     join_at: dict[str, int] = {}
     for key, count in source_len.items():
         surah, ayah = (int(part) for part in key.split(":"))
-        if corpus_len.get((surah, ayah), 0) != count + 1:
+        if key in SHORT_BY_ONE or corpus_len.get((surah, ayah), 0) != count + 1:
             continue
         words = normalised[(surah, ayah)]
         for index in range(len(words) - 1):
@@ -147,6 +175,7 @@ def build(
 
     for path in files:
         offset = 0
+        shift = 0
         current = None
         for token in load_page(path):
             key = token["verse_key"]
@@ -168,7 +197,7 @@ def build(
                 # the code file writes them together or with a space between —
                 # both forms occur, and the space is a separator in the record,
                 # not a glyph on the line.
-                codes = list(token["code"].replace(" ", ""))
+                codes = [succ_n(c, shift) for c in token["code"].replace(" ", "")]
                 whole = "".join(codes)
                 parts = codes if at_join and len(codes) > 1 else [whole]
                 wraps = (key, token["position"]) in SIGN_OPENS_NEXT_LINE
@@ -225,6 +254,33 @@ def build(
                             code,
                         )
                     )
+                # The word the code file left out, and the step that pays for
+                # it: from here to the end of the page every code moves up one.
+                if key in SHORT_BY_ONE and token["position"] == source_len[key]:
+                    position = token["position"] + 1
+                    found = word_at.get((surah, ayah, position))
+                    if found is None:
+                        complaints.append(
+                            f"{key}: recorded as one word short of the code file, "
+                            f"but the corpus has no word {position}"
+                        )
+                        continue
+                    word_id, _, was_line = found
+                    seen_words.add(word_id)
+                    ordinals[(page, was_line)] += 1
+                    rows.append(
+                        (
+                            page,
+                            was_line,
+                            ordinals[(page, was_line)],
+                            "word",
+                            word_id,
+                            key,
+                            succ(whole[-1]),
+                        )
+                    )
+                    shift += 1
+
                 if wraps and bound_line is not None:
                     # The sign the word trails, on the line it opens. It is not
                     # a word and not an āyah marker, so it is neither: it draws,
@@ -263,7 +319,7 @@ def build(
                         "end",
                         None,
                         key,
-                        token["code"].replace(" ", ""),
+                        succ_n(token["code"].replace(" ", ""), shift),
                     )
                 )
 
