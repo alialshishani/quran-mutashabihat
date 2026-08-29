@@ -270,11 +270,16 @@ class _LoaderState extends State<Loader> {
 /// Today, the forks, the drill -- where the place is the screen itself and its
 /// own state is held for us by the IndexedStack.
 class Place {
-  const Place(this.tab, this.page, this.verseKey);
+  const Place(this.tab, this.page, this.verseKey, [this.panel = false]);
 
   final int tab;
   final int? page;
   final String? verseKey;
+
+  /// Whether the mutashabihat sheet was up. A jump taken from the panel was
+  /// taken from inside it, and undoing that jump onto the bare page leaves the
+  /// reader to tap the āyah again to get back to the list they were reading.
+  final bool panel;
 
   bool sameAs(Place o) =>
       tab == o.tab && page == o.page && verseKey == o.verseKey;
@@ -382,9 +387,9 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   /// Where we are now, in the form the history keeps.
-  Place _here() {
+  Place _here({bool panel = false}) {
     final sheet = _sheet(_tab)?.currentState;
-    return Place(_tab, sheet?.page, sheet?.selected);
+    return Place(_tab, sheet?.page, sheet?.selected, panel);
   }
 
   bool get _canGoBack => _history.isNotEmpty;
@@ -393,15 +398,15 @@ class _HomeShellState extends State<HomeShell> {
   ///
   /// A move that lands where we already are must not stack an entry that goes
   /// nowhere, or a press of back would appear to do nothing at all.
-  void _record() {
-    final here = _here();
+  void _record({bool panel = false}) {
+    final here = _here(panel: panel);
     if (_history.isEmpty || !_history.last.sameAs(here)) _history.add(here);
   }
 
   /// Turn the muṣḥaf to a page, from wherever the reader asked, and remember
   /// where they were standing when they asked.
-  void _jump(int page, [String? verseKey]) {
-    _record();
+  void _jump(int page, [String? verseKey, bool fromPanel = false]) {
+    _record(panel: fromPanel);
     setState(() => _tab = kMushaf);
     _applySystemUi(kMushaf);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -431,8 +436,14 @@ class _HomeShellState extends State<HomeShell> {
     final sheet = _sheet(to.tab);
     final page = to.page;
     if (sheet == null || page == null) return;
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => sheet.currentState?.goTo(page, to.verseKey));
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await sheet.currentState?.goTo(page, to.verseKey);
+      // Back into the panel, not merely onto the page under it. The list is
+      // what the reader was reading when they left, and the āyah it is about
+      // is the one the history already put them back on.
+      final key = to.verseKey;
+      if (to.panel && key != null) sheet.currentState?.openPanel(key);
+    });
   }
 
   /// Deal a session and show it, which is what the Today screen's one button
@@ -793,7 +804,7 @@ class MushafView extends StatefulWidget {
   /// A jump out of this sheet: a sibling position in the panel. Routed through
   /// the shell rather than turned to directly, so that it is recorded like
   /// every other jump and `back` can undo it.
-  final void Function(int page, String verseKey) onNavigate;
+  final void Function(int page, String verseKey, [bool fromPanel]) onNavigate;
 
   /// Whether this is the sheet on screen. Both sheets are built at once -- the
   /// shell keeps them in an IndexedStack so a tab change is not a page load --
@@ -962,6 +973,10 @@ class MushafViewState extends State<MushafView> {
   /// `lookup` is the Dart port of app/lookup.py's function of the same name --
   /// the curated official phrases with their pegs, and pass A's own detected
   /// repeats with their dawabit. Checked against the Python's output.
+  /// Open the panel on an āyah from outside, which is how the shell's back
+  /// puts a reader into the list they jumped out of.
+  void openPanel(String verseKey) => _openPanel(verseKey);
+
   void _openPanel(String verseKey) {
     setState(() => _selected = verseKey);
     final parts = verseKey.split(':');
@@ -992,10 +1007,12 @@ class MushafViewState extends State<MushafView> {
   }
 
   /// Turn to a page and select an ayah there -- what every position button in
-  /// the panel and on the forks screen does.
+  /// the panel does. The shell is told the jump came from the panel, so that
+  /// undoing it opens the panel again rather than leaving the reader on the
+  /// page with the list they were reading gone.
   void _jump(int page, String verseKey) {
     Navigator.of(context).popUntil((r) => r.isFirst);
-    widget.onNavigate(page, verseKey);
+    widget.onNavigate(page, verseKey, true);
   }
 
   @override
