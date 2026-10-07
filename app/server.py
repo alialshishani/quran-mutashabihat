@@ -7,6 +7,8 @@ Endpoints
     GET /                                 the āyah lookup page
     GET /mushaf                           the muṣḥaf, page by page
     GET /official                         the official mutashābihāt, as forks
+    GET /quiz                             which sūrah / juz' / next āyah quiz
+    GET /api/quiz?kind=surah&from=78      one quiz question with its answer
     GET /api/mutashabih?surah=2&ayah=25   JSON for one āyah
     GET /api/mutashabih/2/25              same, path form
     GET /api/official?shape=all_but_one   the fork list, filtered and paged
@@ -34,9 +36,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from app import lookup as L
+from app import quiz as Q
 from app.forks_page import html as forks_html
 from app.mushaf_page import html as mushaf_html
 from app.page import html as lookup_html
+from app.quiz_page import html as quiz_html
 
 VERSE_PATH = re.compile(r"^/api/mutashabih/(\d+)[/:](\d+)$")
 PHRASE_PATH = re.compile(r"^/api/(?:official|forks)/(\d+)$")
@@ -48,7 +52,13 @@ FONT_DIR = Path(__file__).resolve().parents[1] / "data" / "raw" / "fonts" / "qcf
 PAGE_LOOKUP = "page:lookup"
 PAGE_FORKS = "page:forks"
 PAGE_MUSHAF = "page:mushaf"
-PAGES = {PAGE_LOOKUP: lookup_html, PAGE_FORKS: forks_html, PAGE_MUSHAF: mushaf_html}
+PAGE_QUIZ = "page:quiz"
+PAGES = {
+    PAGE_LOOKUP: lookup_html,
+    PAGE_FORKS: forks_html,
+    PAGE_MUSHAF: mushaf_html,
+    PAGE_QUIZ: quiz_html,
+}
 
 
 class BadRequest(ValueError):
@@ -95,6 +105,22 @@ def build_response(con: sqlite3.Connection, path: str, query: dict) -> tuple[int
         return HTTPStatus.OK, PAGE_FORKS
     if path == "/mushaf":
         return HTTPStatus.OK, PAGE_MUSHAF
+    if path == "/quiz":
+        return HTTPStatus.OK, PAGE_QUIZ
+
+    if path == "/api/quiz":
+        try:
+            return HTTPStatus.OK, Q.question(
+                con,
+                query.get("kind", ["surah"])[0] or "surah",
+                from_surah=_int_param(query, "from", 1),
+                to_surah=_int_param(query, "to", 114),
+                juz=_int_param(query, "juz", None),
+            )
+        except Q.NoQuestion as exc:
+            return HTTPStatus.NOT_FOUND, {"error": str(exc)}
+        except ValueError as exc:
+            raise BadRequest(str(exc)) from None
 
     matched = FONT_PATH.match(path)
     if matched:

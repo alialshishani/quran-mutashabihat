@@ -163,3 +163,23 @@ python -m pytest tests/ -q
 ```
 
 They run against the real `data/quran.db` and skip if it is not built.
+
+## Quiz (`/quiz`)
+
+Multiple-choice revision over the corpus, four kinds:
+
+| Kind | Question | Wrong answers |
+|---|---|---|
+| `surah` | Which sūrah is this āyah from? | neighbouring sūrahs, then any |
+| `similar` | Same, for an āyah carrying an official mutashābih phrase | the other sūrahs that phrase occurs in |
+| `next` | Which āyah comes next? | openings of other āyāt in the same sūrah |
+| `juz` | Which juz' is this āyah in? | nearby ajzā' |
+
+Narrow it with `from`/`to` (sūrah range) and `juz`. `similar` needs
+`pipeline.official` and `pipeline.pegs` built. Score is kept in the browser.
+
+```powershell
+python -m app.server
+# then open http://127.0.0.1:8000/quiz
+# JSON: http://127.0.0.1:8000/api/quiz?kind=surah&from=78&to=114
+```
