@@ -389,6 +389,8 @@ def html() -> str:
     <span class="here">Forks in the road</span>
     <span class="here">·</span>
     <a href="/mushaf">The muṣḥaf</a>
+    <span class="here">·</span>
+    <a href="/quiz">Quiz</a>
   </nav>
 
   <header>
